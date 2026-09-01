@@ -113,3 +113,8 @@ Lista, crea, actualiza y elimina cuentas tras validar al administrador.
 ## RLS
 
 Las tablas SIGmun mantienen Row Level Security. El contenido público puede consultarse sin iniciar sesión; las escrituras dependen del rol almacenado en `sigmun_user_profiles`.
+
+
+## Actualización — CSV geográfico WKT / MultiPolygon
+
+El cargador geográfico admite CSV de puntos con `lat` y `lon`, y CSV de polígonos mediante columnas denominadas `wkt`, `geometry`, `geom`, `the_geom`, `polygon` o `multipolygon`. Se reconocen WKT `POINT`, `POLYGON` y `MULTIPOLYGON` en EPSG:4326. `POLYGON` se normaliza a `MultiPolygon` antes de enviarse a PostGIS. También se admite una geometría GeoJSON `MultiPolygon` serializada dentro del campo `multipolygon`. Las columnas restantes se conservan como atributos para filtros, simbología y ventanas de información del visor.

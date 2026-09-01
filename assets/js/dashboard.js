@@ -205,7 +205,7 @@
 
   function serverDefault() {
     const d = state.layer?.chart_config?.default_view || {};
-    return {time:d.time||'',dimension:d.dimension||'',series:d.series||'',values:d.values||(d.value?[d.value]:[]),chart:d.chart||'auto',aggregation:d.aggregation||'sum',sort:d.sort||'natural',filters:d.filters||{}};
+    return {time:d.time||'',dimension:d.dimension||'',series:d.series||'',values:d.values||(d.value?[d.value]:[]),chart:d.chart||'auto',aggregation:d.aggregation||'sum',sort:d.sort||'natural',palette:d.palette||'categorical',colorMode:d.colorMode||'auto',filters:d.filters||{}};
   }
   function autoDefault() {
     const t = state.profiles.find(p=>p.role==='time');
@@ -220,7 +220,8 @@
     const fields = new Set(state.profiles.map(p=>p.name));
     return {
       time: fields.has(c.time)?c.time:'', dimension: fields.has(c.dimension)?c.dimension:'', series: fields.has(c.series)?c.series:'',
-      values: (c.values||[]).filter(v=>fields.has(v)).slice(0,12), chart:c.chart||'auto', aggregation:c.aggregation||'sum', sort:c.sort||'natural', filters:c.filters||{}
+      values: (c.values||[]).filter(v=>fields.has(v)).slice(0,12), chart:c.chart||'auto', aggregation:c.aggregation||'sum', sort:c.sort||'natural',
+      palette:c.palette||'categorical', colorMode:c.colorMode||'auto', filters:c.filters||{}
     };
   }
   function applyConfig(c) {
@@ -230,6 +231,8 @@
     $('chartType').value = [...$('chartType').options].some(o=>o.value===c.chart)?c.chart:'auto';
     $('aggregation').value = [...$('aggregation').options].some(o=>o.value===c.aggregation)?c.aggregation:'sum';
     $('sortMode').value = [...$('sortMode').options].some(o=>o.value===c.sort)?c.sort:'natural';
+    if($('chartPalette')) $('chartPalette').value=[...$('chartPalette').options].some(o=>o.value===c.palette)?c.palette:'categorical';
+    if($('chartColorMode')) $('chartColorMode').value=[...$('chartColorMode').options].some(o=>o.value===c.colorMode)?c.colorMode:'auto';
     renderMapping(); updateVisualization();
   }
   function applyInitialView() {
@@ -246,8 +249,8 @@
     localStorage.setItem(`sigmun-dashboard-view-${state.layer.id}`, JSON.stringify(currentConfig()));
     toast('Vista y filtros guardados en este navegador.');
   };
-  function currentConfig() { return {...state.mapping,chart:$('chartType').value,aggregation:$('aggregation').value,sort:$('sortMode').value,filters:{...state.filters}}; }
-  ['chartType','aggregation','sortMode'].forEach(id => $(id).addEventListener('change', updateVisualization));
+  function currentConfig() { return {...state.mapping,chart:$('chartType').value,aggregation:$('aggregation').value,sort:$('sortMode').value,palette:$('chartPalette')?.value||'categorical',colorMode:$('chartColorMode')?.value||'auto',filters:{...state.filters}}; }
+  ['chartType','aggregation','sortMode','chartPalette','chartColorMode'].forEach(id => $(id)?.addEventListener('change', updateVisualization));
 
   function findDimension(regex) { return state.profiles.find(p => p.role==='dimension' && regex.test(fixText(p.label||p.name))); }
   function renderSuggestions() {
@@ -391,6 +394,28 @@
   function updateVisualization() {
     applySmartFilters(); renderKpis(); renderTable(); renderChart(); renderInsights();
   }
+  function withAlpha(hex,alpha=.2){
+    const h=String(hex||'#0f4fa8').replace('#','').trim();
+    if(!/^[0-9a-f]{6}$/i.test(h)) return hex;
+    const n=parseInt(h,16),r=(n>>16)&255,g=(n>>8)&255,b=n&255;
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+  function chartPalette(){return $('chartPalette')?.value||'categorical';}
+  function chartColorMode(datasetCount){
+    const configured=$('chartColorMode')?.value||'auto';
+    if(configured!=='auto')return configured;
+    return datasetCount<=1?'category':'series';
+  }
+  function parsedTooltipValue(ctx){
+    const p=ctx?.parsed;
+    if(typeof p==='number')return p;
+    if(p&&typeof p==='object'){
+      if(Number.isFinite(Number(p.y)))return Number(p.y);
+      if(Number.isFinite(Number(p.x)))return Number(p.x);
+      if(Number.isFinite(Number(p.r)))return Number(p.r);
+    }
+    return ctx?.raw;
+  }
   function renderChart() {
     if(state.chart){state.chart.destroy();state.chart=null;}
     const rows=state.filtered,m=state.mapping,agg=$('aggregation').value,ctype=resolvedChartType(),g=buildChartData(rows,m,agg,$('sortMode').value);
@@ -398,16 +423,74 @@
     if(!rows.length){$('builderMessage').textContent='No hay registros con los filtros actuales.';$('chartTitle').textContent='Sin datos para visualizar';$('chartSubtitle').textContent='Modifica la búsqueda o limpia los filtros inteligentes.';return;}
     if(!m.time&&!m.dimension&&!m.values.length&&agg!=='count')$('builderMessage').textContent='Arrastra una dimensión o una medida. También puedes usar una Guía Inteligente.';
     else $('builderMessage').textContent=g.notice||describeMapping();
+
     const type=ctype==='horizontal'||ctype==='stacked'?'bar':ctype==='area'?'line':ctype;
-    let datasets;
-    if(type==='doughnut'){
-      const first=g.datasets[0]||{data:[]};datasets=[{label:first.label,data:first.data,backgroundColor:g.labels.map((_,i)=>SigmunTheme.colorAt(i,g.labels.length,'categorical')),borderWidth:1}];
-    }else datasets=g.datasets.map((d,i)=>({label:fixText(d.label),data:d.data,borderColor:SigmunTheme.colorAt(i,g.datasets.length,'categorical'),backgroundColor:SigmunTheme.colorAt(i,g.datasets.length,'categorical'),borderWidth:2,tension:.25,fill:ctype==='area',pointRadius:ctype==='line'||ctype==='area'?2:0,borderRadius:type==='bar'?4:0}));
-    const options={responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:datasets.length>1||type==='doughnut',position:'bottom',labels:{boxWidth:10,font:{size:9}}},tooltip:{callbacks:{label:ctx=>`${fixText(ctx.dataset.label||'')}: ${SigmunData.formatNumber(ctx.parsed.y??ctx.parsed)}`}}},scales:type==='doughnut'?{}:{x:{stacked:ctype==='stacked',ticks:{maxRotation:45,minRotation:0,autoSkip:true,maxTicksLimit:28}},y:{stacked:ctype==='stacked',beginAtZero:true,ticks:{callback:v=>SigmunData.formatNumber(v)}}}};
+    const palette=chartPalette(),mode=chartColorMode(g.datasets.length);
+    const categoryColors=g.labels.map((_,i)=>SigmunTheme.colorAt(i,g.labels.length,palette));
+    const pointStyles=['circle','rectRounded','triangle','rectRot','star','crossRot'];
+    let datasets=[];
+
+    if(type==='doughnut'||type==='polarArea'){
+      const first=g.datasets[0]||{data:[]};
+      datasets=[{
+        label:fixText(first.label||'Valor'),
+        data:first.data,
+        backgroundColor:categoryColors,
+        borderColor:'#ffffff',
+        borderWidth:2,
+        hoverOffset:type==='doughnut'?8:4
+      }];
+    }else{
+      datasets=g.datasets.map((d,i)=>{
+        const seriesColor=SigmunTheme.colorAt(i,g.datasets.length,palette);
+        const byCategory=mode==='category' && type==='bar';
+        const background=byCategory?categoryColors:(ctype==='area'||type==='radar'?withAlpha(seriesColor,.20):seriesColor);
+        const border=byCategory?categoryColors:seriesColor;
+        return {
+          label:fixText(d.label),
+          data:d.data,
+          borderColor:border,
+          backgroundColor:background,
+          borderWidth:type==='line'||type==='radar'?2.4:1.4,
+          tension:type==='line'?0.28:0,
+          fill:ctype==='area'||type==='radar',
+          pointRadius:type==='line'||type==='radar'?3:0,
+          pointHoverRadius:type==='line'||type==='radar'?5:0,
+          pointStyle:pointStyles[i%pointStyles.length],
+          pointBackgroundColor:(mode==='category'&&(type==='line'||type==='radar'))?categoryColors:seriesColor,
+          borderDash:(type==='line'&&g.datasets.length>3&&i%3===2)?[6,3]:[],
+          borderRadius:type==='bar'?5:0,
+          maxBarThickness:type==='bar'?52:undefined
+        };
+      });
+    }
+
+    const radial=type==='radar'||type==='polarArea'||type==='doughnut';
+    const options={
+      responsive:true,
+      maintainAspectRatio:false,
+      interaction:{mode:type==='doughnut'||type==='polarArea'?'nearest':'index',intersect:false},
+      animation:{duration:280},
+      plugins:{
+        legend:{
+          display:datasets.length>1||['doughnut','polarArea','radar'].includes(type),
+          position:'bottom',
+          labels:{boxWidth:10,boxHeight:10,usePointStyle:type==='line'||type==='radar',font:{size:9},padding:12}
+        },
+        tooltip:{callbacks:{label:ctx=>`${fixText(ctx.dataset.label||ctx.label||'')}: ${SigmunData.formatNumber(parsedTooltipValue(ctx))}`}}
+      },
+      scales:radial?{}:{
+        x:{stacked:ctype==='stacked',grid:{display:false},ticks:{maxRotation:45,minRotation:0,autoSkip:true,maxTicksLimit:28}},
+        y:{stacked:ctype==='stacked',beginAtZero:true,grid:{color:'rgba(87,110,135,.10)'},ticks:{callback:v=>SigmunData.formatNumber(v)}}
+      }
+    };
+    if(type==='radar') options.scales={r:{beginAtZero:true,grid:{color:'rgba(87,110,135,.12)'},angleLines:{color:'rgba(87,110,135,.12)'},ticks:{display:false}}};
     if(ctype==='horizontal')options.indexAxis='y';
+
     state.chart=new Chart($('mainChart'),{type,data:{labels:g.labels.map(fixText),datasets},options});
     $('chartTitle').textContent=chartTitle();
-    $('chartSubtitle').textContent=`${g.labels.length} grupos · ${g.datasets.length} serie${g.datasets.length===1?'':'s'} · Operación: ${$('aggregation').selectedOptions[0].textContent}`;
+    const paletteLabel=$('chartPalette')?.selectedOptions?.[0]?.textContent||'Multicolor';
+    $('chartSubtitle').textContent=`${g.labels.length} grupos · ${g.datasets.length} serie${g.datasets.length===1?'':'s'} · ${$('aggregation').selectedOptions[0].textContent} · ${paletteLabel}`;
   }
   function describeMapping() {
     const parts=[];if(state.mapping.time)parts.push(`Tiempo: ${label(state.mapping.time)}`);if(state.mapping.dimension)parts.push(`Dimensión: ${label(state.mapping.dimension)}`);if(state.mapping.series)parts.push(`Serie: ${label(state.mapping.series)}`);if(state.mapping.values.length)parts.push(`Valores: ${state.mapping.values.map(label).join(', ')}`);return parts.join(' · ')||'Conteo general de registros.';

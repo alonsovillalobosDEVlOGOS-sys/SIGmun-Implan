@@ -54,3 +54,122 @@
 @media(max-width:1080px){.analysis-config-row{grid-template-columns:1fr}.priority-guides .suggestion-list{grid-template-columns:repeat(2,minmax(0,1fr))}.priority-guides .data-quality{margin-top:10px}.visualization-grid{grid-template-columns:1fr}}
 @media(max-width:850px){.analysis-workspace{grid-template-columns:1fr}.analysis-workspace>.field-shelf-card{position:static;max-height:none;overflow:visible}.analysis-main-flow{gap:12px}.priority-guides .suggestion-list{grid-template-columns:1fr 1fr}.smart-filters{grid-template-columns:1fr 1fr}.chart-workspace{height:350px}}
 @media(max-width:600px){.priority-guides .suggestion-list,.smart-filters{grid-template-columns:1fr}.smart-filter-head small{display:none}.chart-workspace{height:310px}}
+
+
+/* Dashboard responsive alignment + compact independent columns (2026-09-01 v3) */
+.dashboard-advanced{
+  width:100%;
+  max-width:1720px;
+  padding:14px clamp(10px,1.15vw,20px) 22px;
+}
+.dashboard-advanced .dashboard-hero{padding:20px 22px;border-radius:17px}
+.dashboard-advanced .explorer-filters{margin-top:10px;padding:10px 11px}
+.dashboard-advanced .dash-kpis{gap:10px;margin:10px 0}
+.dashboard-advanced .dash-card{padding:13px 14px}
+.dashboard-advanced .analysis-guide{margin:10px 0;padding:8px 12px}
+.analysis-workspace{
+  display:grid;
+  grid-template-columns:minmax(220px,260px) minmax(0,1fr) minmax(270px,310px);
+  gap:10px;
+  align-items:start;
+  width:100%;
+}
+.analysis-workspace>.field-shelf-card{
+  grid-column:1;
+  position:sticky;
+  top:84px;
+  max-height:calc(100vh - 98px);
+  overflow:auto;
+  scrollbar-width:thin;
+}
+.analysis-center-flow{
+  grid-column:2;
+  min-width:0;
+  display:grid;
+  grid-auto-rows:max-content;
+  gap:10px;
+  align-content:start;
+}
+.analysis-right-flow{
+  grid-column:3;
+  min-width:0;
+  display:grid;
+  grid-auto-rows:max-content;
+  gap:10px;
+  align-content:start;
+}
+.analysis-center-flow>.builder-card,
+.analysis-center-flow>.visual-main,
+.analysis-center-flow>.data-origin-card,
+.analysis-right-flow>.suggestions-card,
+.analysis-right-flow>.insight-card{
+  margin:0;
+  min-width:0;
+  align-self:start;
+}
+.builder-card,.suggestions-card,.chart-card,.data-origin-card,.field-shelf-card{border-radius:14px}
+.builder-card,.suggestions-card,.field-shelf-card{padding:12px}
+.chart-card,.data-origin-card{padding:13px}
+.builder-card .studio-title{margin-bottom:8px}
+.drop-grid{gap:7px}
+.field-drop{min-height:48px}
+.field-drop.values{min-height:54px}
+.builder-controls-extended{
+  display:grid;
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:7px;
+  margin-top:8px;
+}
+.builder-controls-extended .field{min-width:0}
+.builder-controls-extended .control{height:38px;min-height:38px;font-size:9px;padding-left:9px}
+.builder-message{min-height:26px;margin-top:7px;padding:7px 9px}
+.smart-filter-panel{margin-top:8px;padding:8px 9px}
+.smart-filter-head{margin-bottom:6px}
+.smart-filters{gap:6px}
+.chart-workspace{
+  height:clamp(315px,35vh,420px);
+  min-height:315px;
+  margin-top:8px;
+}
+.data-origin-card .dashboard-table{margin-top:8px;max-height:390px}
+.priority-guides .suggestion-list{gap:5px}
+.priority-guides .suggestion-item{padding:7px}
+.priority-guides .data-quality{margin-top:8px}
+.analysis-right-flow .insight-card{display:block}
+.analysis-right-flow .insight-text{margin:8px 0}
+.analysis-right-flow .stat-summary{margin-top:8px}
+.analysis-right-flow #downloadBtn{margin-top:8px!important}
+.visual-head h3{line-height:1.2}
+.visual-main .badge,.data-origin-card .badge{margin-top:0;white-space:nowrap}
+
+/* Chart.js canvas always consumes its card without producing artificial vertical gaps */
+.chart-workspace>canvas{display:block!important;width:100%!important;height:100%!important;max-width:100%}
+
+/* Desktop and laptop alignment */
+@media(max-width:1420px){
+  .analysis-workspace{grid-template-columns:minmax(210px,235px) minmax(0,1fr) minmax(250px,285px)}
+  .builder-controls-extended{grid-template-columns:repeat(3,minmax(0,1fr))}
+}
+@media(max-width:1120px){
+  .analysis-workspace{grid-template-columns:225px minmax(0,1fr)}
+  .analysis-center-flow{grid-column:2}
+  .analysis-right-flow{grid-column:2;grid-row:auto;grid-template-columns:1fr 1fr}
+  .analysis-workspace>.field-shelf-card{grid-row:1 / span 2}
+  .builder-controls-extended{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .priority-guides .suggestion-list{grid-template-columns:1fr}
+}
+@media(max-width:850px){
+  .dashboard-advanced{padding:10px}
+  .analysis-workspace{grid-template-columns:1fr}
+  .analysis-workspace>.field-shelf-card,
+  .analysis-center-flow,
+  .analysis-right-flow{grid-column:1;grid-row:auto}
+  .analysis-workspace>.field-shelf-card{position:static;max-height:none;overflow:visible}
+  .analysis-right-flow{grid-template-columns:1fr}
+  .builder-controls-extended{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .chart-workspace{height:340px}
+}
+@media(max-width:560px){
+  .builder-controls-extended{grid-template-columns:1fr}
+  .chart-workspace{height:300px;min-height:300px}
+}
