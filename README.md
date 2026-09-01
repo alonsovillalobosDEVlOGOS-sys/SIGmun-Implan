@@ -1,50 +1,70 @@
 # SIGmun Delicias 2026 — Plataforma funcional con Supabase
 
-Esta versión integra la landing institucional, `sigmun.html`, `visor.html` y `dashboard.html` con el proyecto Supabase **Sigmun IMPLAN**.
+Plataforma institucional del Gobierno Municipal de Delicias / IMPLAN Delicias para publicar y administrar Temas de Consulta, proyectos, información geográfica e indicadores estadísticos.
 
-## Estructura
+## Páginas principales
 
-- `index.html`: landing institucional.
-- `sigmun.html`: selector dinámico de Temas de Consulta, proyectos y panel administrativo.
-- `visor.html`: visor geográfico dinámico con Leaflet.
-- `dashboard.html`: panel estadístico dinámico.
-- `assets/js/config.js`: URL y publishable key de Supabase (clave pública).
-- `assets/js/supabase-service.js`: acceso a base de datos y autenticación.
-- `assets/js/data-utils.js`: importación y normalización de CSV/KML/KMZ.
+- `index.html` — landing pública institucional.
+- `sigmun.html` — catálogo dinámico de Temas de Consulta y proyectos.
+- `visor.html` — visor geográfico con capas precargadas desde Supabase/PostGIS.
+- `dashboard.html` — visor estadístico de bases CSV almacenadas en Supabase.
+- `admin.html` — acceso administrativo con Supabase Auth, roles y administración de contenidos.
 
-## Base de datos
+## Acceso administrativo
 
-El proyecto utiliza estas tablas:
+`admin.html` valida la identidad con Supabase Auth y el rol guardado en `sigmun_user_profiles`.
 
-- `sigmun_topics`
-- `sigmun_projects`
-- `sigmun_geo_layers`
+Roles:
+
+- **Administrador**: usuarios, roles, temas, proyectos, capas geográficas, capas estadísticas y auditoría.
+- **Editor**: proyectos y capas geográficas/estadísticas. No puede administrar cuentas ni temas.
+- **Consulta**: lectura pública; no tiene acceso al panel administrativo.
+
+La primera cuenta administrativa se crea desde `admin.html` con una **clave de activación de un solo uso**. La clave no se almacena en los archivos del sitio; Supabase conserva solamente su hash. Una vez utilizada queda invalidada.
+
+Los administradores pueden crear después nuevas cuentas desde **Usuarios y roles**. La creación y eliminación de usuarios se realiza en una Supabase Edge Function con privilegios de servidor; ninguna clave secreta se expone en HTML o JavaScript.
+
+## Modelo geográfico
+
+- `sigmun_geo_layers` — definición, estilo y publicación de capas.
 - `sigmun_geo_points`
+  - `lat double precision`
+  - `lon double precision`
+  - `geom geometry(Point,4326)` generado automáticamente
+  - `attributes jsonb`
 - `sigmun_geo_polygons`
-- `sigmun_stat_layers`
-- `sigmun_stat_records`
+  - `multipolygon geometry(MultiPolygon,4326)`
+  - `attributes jsonb`
 
-Los puntos usan columnas explícitas `lat` y `lon` y además una geometría PostGIS `Point(4326)` generada automáticamente. Los polígonos se almacenan en `multipolygon geometry(MultiPolygon,4326)`. Los atributos adicionales se guardan en JSONB para preservar los campos propios de cada dataset.
+Formatos de precarga:
 
-## Formatos de administración
+- CSV geográfico con columnas `lat` y `lon`.
+- KML.
+- KMZ.
 
-### Geográficos
-- CSV: requiere columnas `lat` y `lon`; los demás campos se conservan como atributos.
-- KML / KMZ: admite Point, Polygon y MultiPolygon. Los Polygon se normalizan a MultiPolygon.
+Los demás campos de cada archivo se conservan como atributos.
 
-### Estadísticos
-- CSV: todos los campos se conservan en `attributes` y el esquema de columnas se registra en `schema_fields`.
+## Modelo estadístico
 
-## Administración
+- `sigmun_stat_layers` — metadatos, esquema de campos y configuración del dataset.
+- `sigmun_stat_records` — una fila por registro, con datos en `attributes jsonb`.
 
-En `sigmun.html`, pulsa **Administración** e inicia sesión con una cuenta de Supabase Auth. Las operaciones de escritura están restringidas a usuarios autenticados mediante RLS.
+Formato de precarga: CSV.
 
-Desde el panel se pueden:
-- crear/eliminar Temas de Consulta;
-- crear/eliminar proyectos;
-- precargar/eliminar capas geográficas;
-- precargar/eliminar capas estadísticas.
+## Seguridad
+
+La aplicación usa únicamente la publishable key en el navegador. La contraseña directa de PostgreSQL y las claves de servidor no forman parte de los archivos del sitio.
+
+Supabase Row Level Security regula el acceso:
+
+- Anónimo / Consulta: solo contenido activo y público.
+- Editor: proyectos y capas.
+- Administrador: administración completa.
+
+La gestión de usuarios se ejecuta en las Edge Functions `sigmun-user-admin` y `sigmun-bootstrap-admin`.
 
 ## Publicación
 
-Los archivos son compatibles con un hosting estático, pero requieren acceso a Internet para Supabase y las librerías CDN. No uses la contraseña de PostgreSQL en HTML/JS; la aplicación utiliza únicamente la publishable key.
+Sube todo el contenido de esta carpeta al hosting. Las páginas requieren conexión a Internet para Supabase y las librerías CDN.
+
+No publiques claves privadas, contraseña de PostgreSQL ni claves de servicio.

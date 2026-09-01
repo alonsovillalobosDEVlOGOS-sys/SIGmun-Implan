@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>Administración | SIGmun Delicias</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="assets/css/sigmun.css">
+  <link rel="stylesheet" href="assets/css/admin.css">
+</head>
+<body class="admin-body">
+<header class="brandbar admin-brandbar">
+  <a class="logos" href="index.html"><img src="assets/img/delicias.png" alt="Gobierno Municipal de Delicias"><span></span><img src="assets/img/implan.png" alt="IMPLAN Delicias"></a>
+  <div class="title"><b>Administración SIGmun</b><small>Planeación Estratégica · IMPLAN Delicias</small></div>
+  <div class="actions"><a class="btn outline" href="sigmun.html"><i class="bi bi-grid"></i> Plataforma pública</a><button class="btn outline hidden" id="headerLogout"><i class="bi bi-box-arrow-right"></i> Cerrar sesión</button></div>
+</header>
+
+<main id="authGate" class="auth-gate">
+  <section id="loadingCard" class="access-card"><div class="access-icon"><i class="bi bi-shield-lock"></i></div><h1>Verificando acceso</h1><p>Conectando con el sistema de identidad y permisos de SIGmun.</p><div class="loader"></div></section>
+
+  <section id="bootstrapCard" class="access-card hidden">
+    <div class="access-icon green"><i class="bi bi-person-gear"></i></div>
+    <span class="access-kicker">Configuración inicial</span>
+    <h1>Crear primer administrador</h1>
+    <p>Aún no existe una cuenta administrativa. Utiliza la clave de activación entregada por Planeación Estratégica para registrar al primer administrador.</p>
+    <div class="access-form two-col">
+      <div class="field"><label>Nombre completo</label><input class="control" id="bootstrapName" autocomplete="name"></div>
+      <div class="field"><label>Dependencia / área</label><input class="control" id="bootstrapDepartment" value="IMPLAN Delicias"></div>
+      <div class="field" style="grid-column:1/-1"><label>Correo institucional</label><input class="control" id="bootstrapEmail" type="email" autocomplete="username"></div>
+      <div class="field"><label>Contraseña</label><input class="control" id="bootstrapPassword" type="password" autocomplete="new-password"></div>
+      <div class="field"><label>Confirmar contraseña</label><input class="control" id="bootstrapPassword2" type="password" autocomplete="new-password"></div>
+      <div class="field" style="grid-column:1/-1"><label>Clave de activación</label><input class="control mono" id="bootstrapKey" type="password" autocomplete="off" placeholder="SIGMUN-••••••••••"></div>
+    </div>
+    <div id="bootstrapError" class="form-message error"></div>
+    <button class="btn primary access-submit" id="bootstrapSubmit"><i class="bi bi-shield-check"></i> Crear administrador</button>
+    <button class="text-btn" id="bootstrapExistingLogin">Ya tengo una cuenta · iniciar sesión</button>
+  </section>
+
+  <section id="loginCard" class="access-card hidden">
+    <div class="access-icon"><i class="bi bi-shield-lock"></i></div>
+    <span class="access-kicker">Acceso restringido</span>
+    <h1>Administración SIGmun</h1>
+    <p>Ingresa con una cuenta autorizada. Los permisos se validan en Supabase antes de mostrar o modificar información.</p>
+    <div class="access-form">
+      <div class="field"><label>Correo</label><input class="control" id="loginEmail" type="email" autocomplete="username"></div>
+      <div class="field"><label>Contraseña</label><input class="control" id="loginPassword" type="password" autocomplete="current-password"></div>
+    </div>
+    <div id="loginError" class="form-message error"></div>
+    <button class="btn primary access-submit" id="loginSubmit"><i class="bi bi-box-arrow-in-right"></i> Ingresar</button>
+  </section>
+
+  <section id="deniedCard" class="access-card hidden">
+    <div class="access-icon danger"><i class="bi bi-slash-circle"></i></div><span class="access-kicker">Acceso denegado</span><h1>Esta cuenta no puede administrar SIGmun</h1><p id="deniedText">Tu cuenta no tiene un rol administrativo activo.</p><div class="access-actions"><a class="btn outline" href="sigmun.html">Volver a SIGmun</a><button class="btn primary" id="deniedLogout">Cerrar sesión</button></div>
+  </section>
+</main>
+
+<div id="adminApp" class="admin-shell hidden">
+  <aside class="admin-sidebar" id="adminSidebar">
+    <div class="admin-profile"><div class="profile-avatar" id="profileAvatar">A</div><div><b id="profileName">Administrador</b><span id="profileMeta">IMPLAN · Admin</span></div></div>
+    <nav class="admin-nav">
+      <button class="active" data-section="overview"><i class="bi bi-speedometer2"></i><span>Resumen</span></button>
+      <button data-section="users" data-admin-only><i class="bi bi-people"></i><span>Usuarios y roles</span></button>
+      <button data-section="topics" data-admin-only><i class="bi bi-folder2-open"></i><span>Temas de consulta</span></button>
+      <button data-section="projects"><i class="bi bi-grid-1x2"></i><span>Proyectos</span></button>
+      <button data-section="geo"><i class="bi bi-map"></i><span>Capas geográficas</span></button>
+      <button data-section="stats"><i class="bi bi-bar-chart-line"></i><span>Capas estadísticas</span></button>
+      <button data-section="audit" data-admin-only><i class="bi bi-journal-check"></i><span>Registro de accesos</span></button>
+    </nav>
+    <div class="admin-sidebar-foot"><span>Administración segura con Supabase Auth + RLS</span><strong>IMPLAN Delicias · 2026</strong></div>
+  </aside>
+
+  <div class="admin-content">
+    <div class="admin-mobilebar"><button class="iconbtn" id="adminMenuBtn"><i class="bi bi-list"></i></button><div><b id="mobileSectionTitle">Resumen</b><small>Panel administrativo</small></div></div>
+
+    <section class="admin-section active" data-section-pane="overview">
+      <div class="admin-page-head"><div><span class="eyebrow">Panel administrativo</span><h1>Resumen de SIGmun</h1><p>Estado general de contenidos, capas y accesos de la plataforma.</p></div><button class="btn outline" id="refreshAllBtn"><i class="bi bi-arrow-clockwise"></i> Actualizar</button></div>
+      <div class="admin-kpi-grid" id="overviewKpis"></div>
+      <div class="admin-grid-2"><article class="admin-card"><div class="card-title"><div><span class="eyebrow">Contenido</span><h3>Proyectos por tema</h3></div></div><div id="overviewTopics" class="overview-list"></div></article><article class="admin-card"><div class="card-title"><div><span class="eyebrow">Actividad</span><h3>Capas recientes</h3></div></div><div id="overviewRecent" class="overview-list"></div></article></div>
+      <article class="admin-card permission-card"><div><i class="bi bi-shield-check"></i></div><div><h3 id="permissionTitle">Permisos activos</h3><p id="permissionText"></p></div></article>
+    </section>
+
+    <section class="admin-section" data-section-pane="users" data-admin-only>
+      <div class="admin-page-head"><div><span class="eyebrow">Control de acceso</span><h1>Usuarios y roles</h1><p>Crea cuentas, asigna permisos y desactiva accesos sin compartir claves de base de datos.</p></div></div>
+      <article class="admin-card"><div class="card-title"><div><h3>Nuevo usuario</h3><p>Las cuentas creadas aquí quedan confirmadas y listas para iniciar sesión.</p></div></div><div class="admin-form-grid"><div class="field"><label>Nombre completo</label><input class="control" id="newUserName"></div><div class="field"><label>Dependencia / área</label><input class="control" id="newUserDepartment"></div><div class="field"><label>Correo</label><input class="control" id="newUserEmail" type="email"></div><div class="field"><label>Rol</label><select class="control" id="newUserRole"><option value="viewer">Consulta</option><option value="editor">Editor</option><option value="admin">Administrador</option></select></div><div class="field"><label>Contraseña inicial</label><input class="control" id="newUserPassword" type="password" minlength="8"></div><div class="field checkbox-field"><label><input id="newUserActive" type="checkbox" checked> Cuenta activa</label></div></div><div id="newUserError" class="form-message error"></div><button class="btn primary" id="createUserBtn"><i class="bi bi-person-plus"></i> Crear usuario</button></article>
+      <article class="admin-card"><div class="card-title split"><div><h3>Cuentas registradas</h3><p>Administradores, editores y usuarios de consulta.</p></div><span class="count-badge" id="userCount">0</span></div><div id="userList" class="admin-list rich"></div></article>
+    </section>
+
+    <section class="admin-section" data-section-pane="topics" data-admin-only>
+      <div class="admin-page-head"><div><span class="eyebrow">Catálogo principal</span><h1>Temas de consulta</h1><p>Organiza los proyectos en grandes áreas de información para ciudadanía y dependencias.</p></div></div>
+      <article class="admin-card"><div class="card-title"><h3 id="topicFormTitle">Nuevo tema</h3></div><input type="hidden" id="topicId"><input type="hidden" id="topicSlug"><div class="admin-form-grid"><div class="field"><label>Nombre</label><input class="control" id="topicName"></div><div class="field"><label>Ícono Bootstrap</label><input class="control" id="topicIcon" value="bi-folder2-open"></div><div class="field"><label>Color</label><input class="control color-control" id="topicColor" type="color" value="#0f4fa8"></div><div class="field"><label>Orden</label><input class="control" id="topicOrder" type="number" value="0"></div><div class="field wide"><label>Descripción</label><textarea class="control textarea" id="topicDesc"></textarea></div><div class="field checkbox-field"><label><input id="topicActive" type="checkbox" checked> Tema visible</label></div></div><div class="form-actions"><button class="btn primary" id="saveTopicBtn">Guardar tema</button><button class="btn outline hidden" id="cancelTopicBtn">Cancelar edición</button></div></article>
+      <article class="admin-card"><div class="card-title split"><h3>Temas registrados</h3><span class="count-badge" id="topicCount">0</span></div><div id="adminTopicList" class="admin-list rich"></div></article>
+    </section>
+
+    <section class="admin-section" data-section-pane="projects">
+      <div class="admin-page-head"><div><span class="eyebrow">Sistemas de información</span><h1>Proyectos</h1><p>Define el contexto cartográfico y estadístico de cada proyecto de SIGmun.</p></div></div>
+      <article class="admin-card"><div class="card-title"><h3 id="projectFormTitle">Nuevo proyecto</h3></div><input type="hidden" id="projectId"><input type="hidden" id="projectSlug"><div class="admin-form-grid"><div class="field"><label>Tema</label><select class="control" id="projectTopic"></select></div><div class="field"><label>Nombre</label><input class="control" id="projectName"></div><div class="field"><label>Tipo</label><select class="control" id="projectType"><option value="mixed">Mapa + indicadores</option><option value="map">Mapa</option><option value="dashboard">Indicadores</option></select></div><div class="field"><label>Ícono Bootstrap</label><input class="control" id="projectIcon" value="bi-map"></div><div class="field"><label>Color</label><input class="control color-control" id="projectColor" type="color" value="#0f4fa8"></div><div class="field"><label>Orden</label><input class="control" id="projectOrder" type="number" value="0"></div><div class="field"><label>Latitud centro</label><input class="control" id="projectLat" type="number" step="any" value="28.1908"></div><div class="field"><label>Longitud centro</label><input class="control" id="projectLon" type="number" step="any" value="-105.4701"></div><div class="field"><label>Zoom inicial</label><input class="control" id="projectZoom" type="number" min="5" max="20" value="13"></div><div class="field checkbox-field"><label><input id="projectFeatured" type="checkbox"> Destacado</label></div><div class="field wide"><label>Descripción</label><textarea class="control textarea" id="projectDesc"></textarea></div><div class="field checkbox-field"><label><input id="projectActive" type="checkbox" checked> Proyecto visible</label></div></div><div class="form-actions"><button class="btn primary" id="saveProjectBtn">Guardar proyecto</button><button class="btn outline hidden" id="cancelProjectBtn">Cancelar edición</button></div></article>
+      <article class="admin-card"><div class="card-title split"><h3>Proyectos registrados</h3><span class="count-badge" id="projectCountAdmin">0</span></div><div id="adminProjectList" class="admin-list rich"></div></article>
+    </section>
+
+    <section class="admin-section" data-section-pane="geo">
+      <div class="admin-page-head"><div><span class="eyebrow">Información territorial</span><h1>Capas geográficas</h1><p>Precarga información con coordenadas <b>lat/lon</b> o polígonos normalizados a <b>MultiPolygon EPSG:4326</b>.</p></div></div>
+      <article class="admin-card upload-card"><div class="card-title"><h3>Cargar nueva capa</h3></div><div class="admin-form-grid"><div class="field"><label>Proyecto</label><select class="control" id="geoProject"></select></div><div class="field"><label>Nombre</label><input class="control" id="geoName"></div><div class="field"><label>Color</label><input class="control color-control" id="geoColor" type="color" value="#0f4fa8"></div><div class="field"><label>Archivo</label><input class="control file-control" id="geoFile" type="file" accept=".csv,.kml,.kmz"></div><div class="field wide"><label>Descripción</label><input class="control" id="geoDescription"></div><div class="field checkbox-field"><label><input id="geoPublic" type="checkbox" checked> Pública</label></div><div class="field checkbox-field"><label><input id="geoVisible" type="checkbox" checked> Visible por defecto</label></div></div><div class="notice"><b>CSV:</b> debe contener columnas <code>lat</code> y <code>lon</code>; el resto se conserva como atributos. <b>KML/KMZ:</b> se admiten puntos y polígonos; los polígonos se convierten a MultiPolygon.</div><div class="upload-progress"><span id="geoProgress">Esperando archivo…</span><div class="progress-track"><div id="geoProgressBar"></div></div></div><button class="btn primary" id="uploadGeoBtn"><i class="bi bi-cloud-arrow-up"></i> Cargar capa geográfica</button></article>
+      <article class="admin-card"><div class="card-title split"><h3>Capas geográficas almacenadas</h3><span class="count-badge" id="geoCount">0</span></div><div id="adminGeoList" class="admin-list rich"></div></article>
+    </section>
+
+    <section class="admin-section" data-section-pane="stats">
+      <div class="admin-page-head"><div><span class="eyebrow">Información estadística</span><h1>Capas estadísticas</h1><p>Carga bases CSV para alimentar filtros, indicadores, series, gráficas y tablas del dashboard.</p></div></div>
+      <article class="admin-card upload-card"><div class="card-title"><h3>Cargar nueva base estadística</h3></div><div class="admin-form-grid"><div class="field"><label>Proyecto</label><select class="control" id="statProject"></select></div><div class="field"><label>Nombre</label><input class="control" id="statName"></div><div class="field wide"><label>Descripción</label><input class="control" id="statDescription"></div><div class="field wide"><label>Archivo CSV</label><input class="control file-control" id="statFile" type="file" accept=".csv"></div><div class="field checkbox-field"><label><input id="statPublic" type="checkbox" checked> Pública</label></div></div><div class="upload-progress"><span id="statProgress">Esperando archivo…</span><div class="progress-track"><div id="statProgressBar"></div></div></div><button class="btn primary" id="uploadStatBtn"><i class="bi bi-cloud-arrow-up"></i> Cargar base estadística</button></article>
+      <article class="admin-card"><div class="card-title split"><h3>Capas estadísticas almacenadas</h3><span class="count-badge" id="statCount">0</span></div><div id="adminStatList" class="admin-list rich"></div></article>
+    </section>
+
+    <section class="admin-section" data-section-pane="audit" data-admin-only>
+      <div class="admin-page-head"><div><span class="eyebrow">Seguridad</span><h1>Registro de accesos</h1><p>Historial de creación, actualización y eliminación de cuentas administrativas.</p></div><button class="btn outline" id="refreshAuditBtn"><i class="bi bi-arrow-clockwise"></i> Actualizar</button></div>
+      <article class="admin-card"><div id="auditList" class="audit-list"></div></article>
+    </section>
+  </div>
+</div>
+
+<div class="modal" id="userEditModal"><div class="modal-card" style="max-width:560px"><div class="modal-head"><h3>Editar usuario</h3><button class="iconbtn" data-close="userEditModal"><i class="bi bi-x-lg"></i></button></div><div class="modal-body"><input type="hidden" id="editUserId"><div class="admin-form-grid"><div class="field"><label>Nombre</label><input class="control" id="editUserName"></div><div class="field"><label>Dependencia / área</label><input class="control" id="editUserDepartment"></div><div class="field"><label>Rol</label><select class="control" id="editUserRole"><option value="viewer">Consulta</option><option value="editor">Editor</option><option value="admin">Administrador</option></select></div><div class="field checkbox-field"><label><input id="editUserActive" type="checkbox"> Cuenta activa</label></div><div class="field wide"><label>Nueva contraseña <span class="muted-label">(opcional)</span></label><input class="control" id="editUserPassword" type="password" minlength="8" placeholder="Dejar vacío para conservarla"></div></div><div id="editUserError" class="form-message error"></div></div><div class="modal-foot"><button class="btn outline" data-close="userEditModal">Cancelar</button><button class="btn primary" id="saveUserEditBtn">Guardar cambios</button></div></div></div>
+
+<div class="modal" id="geoEditModal"><div class="modal-card" style="max-width:560px"><div class="modal-head"><h3>Configurar capa geográfica</h3><button class="iconbtn" data-close="geoEditModal"><i class="bi bi-x-lg"></i></button></div><div class="modal-body"><input type="hidden" id="editGeoId"><div class="admin-form-grid"><div class="field"><label>Nombre</label><input class="control" id="editGeoName"></div><div class="field"><label>Color</label><input class="control color-control" id="editGeoColor" type="color"></div><div class="field wide"><label>Descripción</label><textarea class="control textarea" id="editGeoDescription"></textarea></div><div class="field checkbox-field"><label><input id="editGeoPublic" type="checkbox"> Pública</label></div><div class="field checkbox-field"><label><input id="editGeoVisible" type="checkbox"> Visible por defecto</label></div></div></div><div class="modal-foot"><button class="btn outline" data-close="geoEditModal">Cancelar</button><button class="btn primary" id="saveGeoEditBtn">Guardar cambios</button></div></div></div>
+
+<div class="modal" id="statEditModal"><div class="modal-card" style="max-width:560px"><div class="modal-head"><h3>Configurar capa estadística</h3><button class="iconbtn" data-close="statEditModal"><i class="bi bi-x-lg"></i></button></div><div class="modal-body"><input type="hidden" id="editStatId"><div class="admin-form-grid"><div class="field"><label>Nombre</label><input class="control" id="editStatName"></div><div class="field wide"><label>Descripción</label><textarea class="control textarea" id="editStatDescription"></textarea></div><div class="field checkbox-field"><label><input id="editStatPublic" type="checkbox"> Pública</label></div></div></div><div class="modal-foot"><button class="btn outline" data-close="statEditModal">Cancelar</button><button class="btn primary" id="saveStatEditBtn">Guardar cambios</button></div></div></div>
+
+<div class="toast" id="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://unpkg.com/@tmcw/togeojson@5.8.1/dist/togeojson.umd.js"></script>
+<script src="assets/js/config.js"></script>
+<script src="assets/js/supabase-service.js"></script>
+<script src="assets/js/data-utils.js"></script>
+<script src="assets/js/admin.js"></script>
+</body>
+</html>
