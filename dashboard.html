@@ -1,7 +1,8 @@
 <!doctype html>
-<html lang="es">
+<html lang="es-MX">
 <head>
-  <meta charset="utf-8">
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Indicadores | SIGmun Delicias</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -40,52 +41,60 @@
     <div class="guide-step"><span>3</span><div><b>Compara y lee</b><small>Cambia gráfica, agregación o filtros.</small></div></div>
   </section>
 
-  <section class="analysis-studio">
+  <section class="analysis-workspace">
     <aside class="field-shelf-card">
-      <div class="studio-title"><div><span class="eyebrow">Campos disponibles</span><h3>Arrastra para analizar</h3></div><button class="mini-icon" id="refreshFieldsBtn" title="Restaurar vista"><i class="bi bi-arrow-counterclockwise"></i></button></div>
+      <div class="studio-title"><div><span class="eyebrow">Campos disponibles</span><h3>Arrastra para analizar</h3></div><button class="mini-icon" id="refreshFieldsBtn" title="Crear una vista sugerida"><i class="bi bi-stars"></i></button></div>
       <div id="fieldShelf" class="field-shelf"></div>
-      <div class="field-guide"><i class="bi bi-info-circle"></i><span><b>Tiempo</b> ordena años y fechas. <b>Dimensión</b> agrupa categorías. <b>Medida</b> calcula sumas o promedios.</span></div>
+      <div class="field-guide"><i class="bi bi-info-circle"></i><span><b>Tiempo</b> ordena años y fechas. <b>Dimensión</b> agrupa categorías. <b>Medida</b> calcula sumas, promedios y comparaciones.</span></div>
     </aside>
 
-    <section class="builder-card">
-      <div class="studio-title"><div><span class="eyebrow">Distribución de la visualización</span><h3>Construye tu comparación</h3></div><div class="builder-actions"><button class="btn outline small" id="saveViewBtn"><i class="bi bi-bookmark"></i> Guardar vista</button><button class="btn outline small" id="restoreViewBtn"><i class="bi bi-arrow-repeat"></i> Restaurar</button></div></div>
-      <div class="drop-grid">
-        <div class="drop-role"><label><i class="bi bi-calendar3"></i> Tiempo / año <span>opcional</span></label><div class="field-drop single" id="dropTime" data-role="time"><span class="drop-placeholder">Arrastra un campo temporal</span></div></div>
-        <div class="drop-role"><label><i class="bi bi-diagram-3"></i> Dimensión <span>categoría principal</span></label><div class="field-drop single" id="dropDimension" data-role="dimension"><span class="drop-placeholder">Ej. colonia, sector, tipo</span></div></div>
-        <div class="drop-role"><label><i class="bi bi-layers"></i> Serie <span>comparación opcional</span></label><div class="field-drop single" id="dropSeries" data-role="series"><span class="drop-placeholder">Ej. sexo, programa, zona</span></div></div>
-        <div class="drop-role values-role"><label><i class="bi bi-123"></i> Valores <span>hasta 4 medidas</span></label><div class="field-drop values" id="dropValues" data-role="values"><span class="drop-placeholder">Arrastra una o varias medidas</span></div></div>
+    <div class="analysis-main-flow">
+      <div class="analysis-config-row">
+        <section class="builder-card">
+          <div class="studio-title"><div><span class="eyebrow">Distribución de la visualización</span><h3>Construye tu comparación</h3></div><div class="builder-actions"><button class="btn outline small" id="saveViewBtn"><i class="bi bi-bookmark"></i> Guardar vista</button><button class="btn outline small" id="restoreViewBtn"><i class="bi bi-arrow-repeat"></i> Restaurar</button></div></div>
+          <div class="drop-grid">
+            <div class="drop-role"><label><i class="bi bi-calendar3"></i> Tiempo / año <span>opcional</span></label><div class="field-drop single" id="dropTime" data-role="time"><span class="drop-placeholder">Arrastra un campo temporal</span></div></div>
+            <div class="drop-role"><label><i class="bi bi-diagram-3"></i> Dimensión <span>categoría principal</span></label><div class="field-drop single" id="dropDimension" data-role="dimension"><span class="drop-placeholder">Ej. indicador, colonia, sector</span></div></div>
+            <div class="drop-role"><label><i class="bi bi-layers"></i> Serie <span>comparación opcional</span></label><div class="field-drop single" id="dropSeries" data-role="series"><span class="drop-placeholder">Ej. subíndice, sexo, programa</span></div></div>
+            <div class="drop-role values-role"><label><i class="bi bi-123"></i> Valores <span>hasta 12 medidas</span></label><div class="field-drop values" id="dropValues" data-role="values"><span class="drop-placeholder">Arrastra una o varias medidas</span></div></div>
+          </div>
+          <div class="builder-controls">
+            <div class="field"><label>Tipo de gráfica</label><select class="control" id="chartType"><option value="auto">Automática</option><option value="bar">Barras</option><option value="line">Línea</option><option value="area">Área</option><option value="horizontal">Barras horizontales</option><option value="stacked">Barras apiladas</option><option value="doughnut">Dona</option></select></div>
+            <div class="field"><label>Operación</label><select class="control" id="aggregation"><option value="sum">Suma</option><option value="avg">Promedio</option><option value="count">Conteo</option><option value="min">Mínimo</option><option value="max">Máximo</option></select></div>
+            <div class="field"><label>Orden</label><select class="control" id="sortMode"><option value="natural">Natural / temporal</option><option value="desc">Mayor a menor</option><option value="asc">Menor a mayor</option></select></div>
+          </div>
+          <div id="builderMessage" class="builder-message"></div>
+        </section>
+
+        <aside class="suggestions-card priority-guides">
+          <div class="studio-title"><div><span class="eyebrow"><i class="bi bi-stars"></i> Guías inteligentes</span><h3>Análisis recomendados</h3><p>Empieza con una lectura común y después ajusta campos o filtros.</p></div></div>
+          <div id="suggestionList" class="suggestion-list"></div>
+          <div class="data-quality" id="dataQuality"></div>
+        </aside>
       </div>
-      <div class="builder-controls">
-        <div class="field"><label>Tipo de gráfica</label><select class="control" id="chartType"><option value="auto">Automática</option><option value="bar">Barras</option><option value="line">Línea</option><option value="area">Área</option><option value="horizontal">Barras horizontales</option><option value="stacked">Barras apiladas</option><option value="doughnut">Dona</option></select></div>
-        <div class="field"><label>Operación</label><select class="control" id="aggregation"><option value="sum">Suma</option><option value="avg">Promedio</option><option value="count">Conteo</option><option value="min">Mínimo</option><option value="max">Máximo</option></select></div>
-        <div class="field"><label>Orden</label><select class="control" id="sortMode"><option value="natural">Natural / temporal</option><option value="desc">Mayor a menor</option><option value="asc">Menor a mayor</option></select></div>
-      </div>
-      <div id="builderMessage" class="builder-message"></div>
-    </section>
 
-    <aside class="suggestions-card">
-      <div class="studio-title"><div><span class="eyebrow">Guía inteligente</span><h3>Comparaciones sugeridas</h3></div></div>
-      <div id="suggestionList" class="suggestion-list"></div>
-      <div class="data-quality" id="dataQuality"></div>
-    </aside>
-  </section>
+      <section class="visualization-grid">
+        <article class="chart-card visual-main">
+          <div class="visual-head"><div><span class="eyebrow">Visualización activa</span><h3 id="chartTitle">Selecciona campos para comenzar</h3><p id="chartSubtitle">La gráfica se actualiza con cada cambio.</p></div><span class="badge" id="chartRecordBadge">0 registros</span></div>
+          <div class="smart-filter-panel" id="smartFilterPanel">
+            <div class="smart-filter-head"><div><i class="bi bi-funnel"></i><span><b>Filtros inteligentes</b><small>Filtra periodos, dimensiones o series sin cambiar la construcción.</small></span></div><button class="mini-icon" id="clearSmartFiltersBtn" title="Limpiar filtros"><i class="bi bi-x-circle"></i></button></div>
+            <div id="smartFilters" class="smart-filters"></div>
+          </div>
+          <div class="chart-workspace"><canvas id="mainChart"></canvas></div>
+        </article>
+        <article class="chart-card insight-card">
+          <div><span class="eyebrow">Lectura rápida</span><h3>Qué dicen los datos</h3></div>
+          <div id="insightText" class="insight-text"></div>
+          <div class="stat-summary" id="numericKpis"></div>
+          <button id="downloadBtn" class="btn outline" style="width:100%;margin-top:12px"><i class="bi bi-download"></i> Descargar CSV filtrado</button>
+        </article>
+      </section>
 
-  <section class="visualization-grid">
-    <article class="chart-card visual-main">
-      <div class="visual-head"><div><span class="eyebrow">Visualización activa</span><h3 id="chartTitle">Selecciona campos para comenzar</h3><p id="chartSubtitle">La gráfica se actualiza con cada cambio.</p></div><span class="badge" id="chartRecordBadge">0 registros</span></div>
-      <div class="chart-workspace"><canvas id="mainChart"></canvas></div>
-    </article>
-    <article class="chart-card insight-card">
-      <div><span class="eyebrow">Lectura rápida</span><h3>Qué dicen los datos</h3></div>
-      <div id="insightText" class="insight-text"></div>
-      <div class="stat-summary" id="numericKpis"></div>
-      <button id="downloadBtn" class="btn outline" style="width:100%;margin-top:12px"><i class="bi bi-download"></i> Descargar CSV filtrado</button>
-    </article>
-  </section>
-
-  <section class="table-card" style="margin-top:14px">
-    <div class="visual-head"><div><span class="eyebrow">Datos de origen</span><h3>Tabla de registros</h3></div><span class="badge" id="recordCount">0 registros</span></div>
-    <div class="data-table-wrap dashboard-table"><table class="data-table" id="dataTable"></table></div>
+      <section class="table-card data-origin-card">
+        <div class="visual-head"><div><span class="eyebrow">Datos de origen</span><h3>Tabla de registros</h3><p>La tabla refleja la búsqueda y los filtros inteligentes activos.</p></div><span class="badge" id="recordCount">0 registros</span></div>
+        <div class="data-table-wrap dashboard-table"><table class="data-table" id="dataTable"></table></div>
+      </section>
+    </div>
   </section>
 </main>
 <div class="toast" id="toast"></div>

@@ -18,3 +18,39 @@
 @media(max-width:1200px){.analysis-studio{grid-template-columns:240px 1fr}.suggestions-card{grid-column:1/-1}.suggestion-list{grid-template-columns:repeat(3,1fr)}.visualization-grid{grid-template-columns:1fr}.insight-card{display:block}}
 @media(max-width:850px){.dashboard-hero{display:block}.hero-tip{margin-top:14px;max-width:none}.analysis-guide{grid-template-columns:1fr}.analysis-guide>i{display:none}.analysis-studio{grid-template-columns:1fr}.field-shelf{grid-template-columns:repeat(3,1fr)}.suggestion-list{grid-template-columns:1fr 1fr}.drop-grid{grid-template-columns:1fr}.builder-controls{grid-template-columns:1fr 1fr}.chart-workspace{height:360px}}
 @media(max-width:600px){.dashboard{padding:12px}.field-shelf{grid-template-columns:1fr}.suggestion-list{grid-template-columns:1fr}.builder-controls{grid-template-columns:1fr}.builder-actions{display:none}.chart-workspace{height:320px}}
+
+/* Dashboard layout correction + intelligent filters (2026-09) */
+.analysis-workspace{display:grid;grid-template-columns:270px minmax(0,1fr);gap:14px;align-items:start}
+.analysis-workspace>.field-shelf-card{position:sticky;top:88px;max-height:calc(100vh - 106px);overflow:auto;scrollbar-width:thin}
+.analysis-main-flow{min-width:0;display:grid;gap:14px}
+.analysis-config-row{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:14px;align-items:start}
+.analysis-main-flow .visualization-grid{margin-top:0}
+.analysis-main-flow .data-origin-card{margin-top:0}
+.priority-guides{border-color:#cfe2f5;background:linear-gradient(180deg,#f8fbff 0,#fff 38%);box-shadow:0 8px 24px rgba(15,79,168,.06)}
+.priority-guides .studio-title{margin-bottom:9px}
+.priority-guides .studio-title p{font-size:8px;line-height:1.45;color:#8291a3;margin:5px 0 0}
+.priority-guides .eyebrow{display:inline-flex;align-items:center;gap:5px;color:var(--blue)}
+.priority-guides .suggestion-item:first-child{border-color:#a8caeb;background:#f1f8ff;box-shadow:inset 3px 0 0 var(--blue)}
+.priority-guides .suggestion-item b{font-size:9.5px}
+.priority-guides .suggestion-item small{font-size:7.5px}
+.smart-filter-panel{margin-top:10px;padding:10px 11px;border:1px solid #dce8f3;border-radius:12px;background:#f7fbff}
+.smart-filter-panel.is-empty{display:none}
+.smart-filter-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.smart-filter-head>div{display:flex;align-items:center;gap:8px;min-width:0}
+.smart-filter-head>div>i{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:#e7f2fd;color:var(--blue);font-size:13px;flex:none}
+.smart-filter-head span{min-width:0}
+.smart-filter-head b{display:block;font-size:9px;color:#38536e}
+.smart-filter-head small{display:block;font-size:7.5px;color:#8492a3;margin-top:1px}
+.smart-filters{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:7px}
+.smart-filter-field label{display:flex;align-items:center;gap:4px;font-size:7.5px;font-weight:800;color:#64778d;margin:0 0 4px}
+.smart-filter-field label i{color:var(--blue)}
+.smart-filter-field .control{height:34px;min-height:34px;padding:0 28px 0 9px;font-size:8.5px;background-color:#fff}
+.filter-status{display:inline-flex;align-items:center;gap:4px;margin-left:5px;padding:2px 6px;border-radius:999px;background:#e9f6ef;color:#087942;font-size:7px;font-weight:800}
+.chart-workspace{height:390px}
+.data-origin-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 5px 18px rgba(11,46,84,.04)}
+.data-origin-card .visual-head p{font-size:8px;color:#8794a4;margin:3px 0 0}
+.analysis-main-flow .dashboard-table{max-height:440px}
+@media(max-width:1300px){.analysis-workspace{grid-template-columns:240px minmax(0,1fr)}.analysis-config-row{grid-template-columns:minmax(0,1fr) 280px}.smart-filters{grid-template-columns:repeat(2,minmax(150px,1fr))}}
+@media(max-width:1080px){.analysis-config-row{grid-template-columns:1fr}.priority-guides .suggestion-list{grid-template-columns:repeat(2,minmax(0,1fr))}.priority-guides .data-quality{margin-top:10px}.visualization-grid{grid-template-columns:1fr}}
+@media(max-width:850px){.analysis-workspace{grid-template-columns:1fr}.analysis-workspace>.field-shelf-card{position:static;max-height:none;overflow:visible}.analysis-main-flow{gap:12px}.priority-guides .suggestion-list{grid-template-columns:1fr 1fr}.smart-filters{grid-template-columns:1fr 1fr}.chart-workspace{height:350px}}
+@media(max-width:600px){.priority-guides .suggestion-list,.smart-filters{grid-template-columns:1fr}.smart-filter-head small{display:none}.chart-workspace{height:310px}}

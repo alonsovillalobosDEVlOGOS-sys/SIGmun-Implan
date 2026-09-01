@@ -132,3 +132,11 @@ La gestión de usuarios se ejecuta en las Edge Functions `sigmun-user-admin` y `
 Sube todo el contenido de esta carpeta al hosting. Las páginas requieren conexión a Internet para Supabase y las librerías CDN.
 
 No publiques claves privadas, contraseña de PostgreSQL ni claves de servicio.
+
+## Ajuste Dashboard — septiembre 2026
+
+`dashboard.html` incorpora una distribución de dos columnas donde la bandeja de campos funciona de manera independiente del flujo principal. Esto elimina espacios verticales provocados por bases con muchos campos y mantiene consecutivos el constructor, la visualización activa y la tabla de datos.
+
+Se añadieron filtros inteligentes contextuales para Tiempo/Año, Dimensión y Serie, además de Top 5/10/20 categorías. Las Guías Inteligentes priorizan tendencias de crecimiento, series comparativas por tiempo, tendencias históricas cuando los años están almacenados como columnas, rankings, comparación de categorías y composición.
+
+El lector de CSV/KML ahora intenta UTF-8 y, cuando detecta caracteres de reemplazo, utiliza automáticamente Windows-1252 como alternativa. El dashboard normaliza Unicode, corrige patrones frecuentes de texto previamente importado con codificación dañada y exporta CSV con BOM UTF-8 para mayor compatibilidad con Excel.
