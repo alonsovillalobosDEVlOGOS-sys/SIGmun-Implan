@@ -6,9 +6,9 @@ Plataforma institucional del Gobierno Municipal de Delicias / IMPLAN Delicias pa
 
 - `index.html` — landing pública institucional.
 - `sigmun.html` — catálogo dinámico de Temas de Consulta y proyectos.
-- `visor.html` — visor geográfico con capas precargadas desde Supabase/PostGIS.
-- `dashboard.html` — visor estadístico de bases CSV almacenadas en Supabase.
-- `admin.html` — acceso administrativo con Supabase Auth, roles y administración de contenidos.
+- `visor.html` — visor geográfico con simbología temática y leyendas almacenadas en Supabase/PostGIS.
+- `dashboard.html` — explorador estadístico visual con arrastrar y soltar.
+- `admin.html` — acceso administrativo con Supabase Auth, roles y administración avanzada de contenidos.
 
 ## Acceso administrativo
 
@@ -20,13 +20,45 @@ Roles:
 - **Editor**: proyectos y capas geográficas/estadísticas. No puede administrar cuentas ni temas.
 - **Consulta**: lectura pública; no tiene acceso al panel administrativo.
 
-La primera cuenta administrativa se crea desde `admin.html` con una **clave de activación de un solo uso**. La clave no se almacena en los archivos del sitio; Supabase conserva solamente su hash. Una vez utilizada queda invalidada.
+Los administradores pueden crear nuevas cuentas desde **Usuarios y roles**. La creación y eliminación de usuarios se realiza en una Supabase Edge Function con privilegios de servidor; ninguna clave secreta se expone en HTML o JavaScript.
 
-Los administradores pueden crear después nuevas cuentas desde **Usuarios y roles**. La creación y eliminación de usuarios se realiza en una Supabase Edge Function con privilegios de servidor; ninguna clave secreta se expone en HTML o JavaScript.
+## Gestor avanzado de capas geográficas
+
+Cada registro de `sigmun_geo_layers` conserva la representación cartográfica dentro de `style jsonb`. El panel administrativo permite configurar sin cambiar el esquema de la base:
+
+- símbolo único;
+- categorías a partir de cualquier atributo;
+- rangos graduados para campos numéricos;
+- clasificación por intervalos iguales o cuantiles;
+- paletas, color sin dato, borde, opacidad y tamaño de puntos;
+- etiquetas de categorías/rangos editables;
+- título y visibilidad de la leyenda;
+- campo usado como etiqueta en el mapa;
+- vista previa Leaflet antes de publicar;
+- edición de `name` y `attributes` de cada elemento geográfico;
+- orden de dibujo mediante arrastrar y soltar por proyecto.
+
+`visor.html` interpreta directamente esta configuración. Por ello, los colores, categorías, rangos, orden y leyendas publicados en el administrador son los que se muestran a la ciudadanía.
+
+### Estructura conceptual de `style`
+
+```json
+{
+  "renderer": "single | categorized | graduated",
+  "field": "campo_tematico",
+  "color": "#0f4fa8",
+  "palette": "municipal",
+  "categories": [{"value":"A","label":"Categoría A","color":"#0f4fa8"}],
+  "classes": [{"min":0,"max":100,"label":"0 – 100","color":"#dceafd"}],
+  "noDataColor": "#b9c2cc",
+  "labelField": "name",
+  "legend": {"show":true,"title":"Título de leyenda"}
+}
+```
 
 ## Modelo geográfico
 
-- `sigmun_geo_layers` — definición, estilo y publicación de capas.
+- `sigmun_geo_layers` — definición, estilo, orden y publicación de capas.
 - `sigmun_geo_points`
   - `lat double precision`
   - `lon double precision`
@@ -36,20 +68,52 @@ Los administradores pueden crear después nuevas cuentas desde **Usuarios y role
   - `multipolygon geometry(MultiPolygon,4326)`
   - `attributes jsonb`
 
-Formatos de precarga:
+Formatos de precarga: CSV geográfico con `lat`/`lon`, KML y KMZ. Los demás campos se conservan como atributos.
 
-- CSV geográfico con columnas `lat` y `lon`.
-- KML.
-- KMZ.
+## Explorador estadístico visual
 
-Los demás campos de cada archivo se conservan como atributos.
+`dashboard.html` perfila automáticamente los campos de una base y los clasifica en:
 
-## Modelo estadístico
+- **Tiempo / año**: años, fechas y periodos;
+- **Dimensión**: categorías utilizadas para agrupar;
+- **Medida**: valores numéricos utilizados para sumar, promediar, obtener mínimos/máximos, etc.
 
-- `sigmun_stat_layers` — metadatos, esquema de campos y configuración del dataset.
-- `sigmun_stat_records` — una fila por registro, con datos en `attributes jsonb`.
+La persona usuaria puede arrastrar campos a cuatro zonas: **Tiempo, Dimensión, Serie y Valores**. El dashboard genera gráficas de barras, líneas, área, barras horizontales, barras apiladas o dona y permite cambiar la operación entre suma, promedio, conteo, mínimo y máximo.
 
-Formato de precarga: CSV.
+También incluye:
+
+- comparaciones sugeridas automáticamente según los campos disponibles;
+- lectura rápida de máximos, mínimos, promedio y mediana;
+- resumen de calidad/completitud de la base;
+- búsqueda que filtra simultáneamente tabla y visualización;
+- hasta cuatro medidas comparables en una misma gráfica;
+- vistas personales guardadas en el navegador;
+- descarga del CSV filtrado.
+
+## Configuración estadística en Supabase
+
+`sigmun_stat_layers.chart_config` conserva el modelo visual de cada base:
+
+```json
+{
+  "version": 2,
+  "field_roles": {
+    "Año": {"role":"time","label":"Año"},
+    "Sector": {"role":"dimension","label":"Sector"},
+    "Inversión": {"role":"measure","label":"Inversión total"}
+  },
+  "default_view": {
+    "chart":"line",
+    "aggregation":"sum",
+    "time":"Año",
+    "dimension":"",
+    "series":"Sector",
+    "value":"Inversión"
+  }
+}
+```
+
+Desde `admin.html` es posible corregir el rol detectado de cualquier campo, cambiar su etiqueta pública, ocultarlo del constructor y definir la visualización inicial sugerida.
 
 ## Seguridad
 

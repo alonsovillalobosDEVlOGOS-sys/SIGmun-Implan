@@ -56,6 +56,20 @@
   async function insertPolygons(layerId, rows){ for(const r of rows){ const {error}=await client.rpc('sigmun_insert_geo_polygon',{p_layer_id:layerId,p_geometry:r.geometry,p_name:r.name||null,p_attributes:r.attributes||{}}); if(error)throw error; } }
   async function insertStatRecords(layerId, rows){ let offset=0; for(const part of chunk(rows,400)){ const payload=part.map((r,i)=>({layer_id:layerId,record_order:offset+i,attributes:r})); const {error}=await client.from('sigmun_stat_records').insert(payload); if(error)throw error; offset+=part.length; } }
   async function updateGeoStyle(id,style){ return updateGeoLayer(id,{style}); }
+  async function updateGeoFeature(layerId,featureId,geometryType,payload={}){
+    const table=geometryType==='Point'?'sigmun_geo_points':'sigmun_geo_polygons';
+    const patch={};
+    if('name' in payload)patch.name=payload.name||null;
+    if('attributes' in payload)patch.attributes=payload.attributes||{};
+    const {data,error}=await client.from(table).update(patch).eq('id',featureId).eq('layer_id',layerId).select('id').maybeSingle();
+    if(error)throw error;if(!data)throw new Error('No fue posible localizar el elemento geográfico.');return data;
+  }
+  async function updateGeoLayerOrders(items){
+    for(const item of items||[]){const {error}=await client.from('sigmun_geo_layers').update({sort_order:item.sort_order,updated_at:new Date().toISOString()}).eq('id',item.id);if(error)throw error;}
+  }
+  async function updateStatLayerOrders(items){
+    for(const item of items||[]){const {error}=await client.from('sigmun_stat_layers').update({sort_order:item.sort_order,updated_at:new Date().toISOString()}).eq('id',item.id);if(error)throw error;}
+  }
 
-  window.SigmunDB={client,topics,projects,projectBySlug,geoLayers,statLayers,geojson,statRecords,session,signIn,signUp,signOut,adminStatus,myProfile,bootstrapAdmin,auditLogs,manageUsers,saveTopic,saveProject,deleteTopic,deleteProject,createGeoLayer,updateGeoLayer,createStatLayer,updateStatLayer,deleteGeoLayer,deleteStatLayer,insertPoints,insertPolygons,insertStatRecords,updateGeoStyle,slugify};
+  window.SigmunDB={client,topics,projects,projectBySlug,geoLayers,statLayers,geojson,statRecords,session,signIn,signUp,signOut,adminStatus,myProfile,bootstrapAdmin,auditLogs,manageUsers,saveTopic,saveProject,deleteTopic,deleteProject,createGeoLayer,updateGeoLayer,createStatLayer,updateStatLayer,deleteGeoLayer,deleteStatLayer,insertPoints,insertPolygons,insertStatRecords,updateGeoStyle,updateGeoFeature,updateGeoLayerOrders,updateStatLayerOrders,slugify};
 })();

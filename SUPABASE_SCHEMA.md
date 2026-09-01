@@ -6,37 +6,66 @@
 Temas de Consulta que estructuran la plataforma pública.
 
 ### `sigmun_projects`
-Proyectos asociados a un tema. `project_type` puede ser:
-- `map`
-- `dashboard`
-- `mixed`
-
-Incluye centro cartográfico (`center_lat`, `center_lon`) y zoom inicial.
+Proyectos asociados a un tema. `project_type`: `map`, `dashboard` o `mixed`. Incluye centro cartográfico y zoom inicial.
 
 ## Información geográfica
 
 ### `sigmun_geo_layers`
-Metadatos, formato de origen, estilo, visibilidad y condición pública/privada.
+Metadatos, formato de origen, orden, publicación y configuración temática. `style jsonb` funciona como contrato entre `admin.html` y `visor.html`.
+
+Propiedades utilizadas dentro de `style`:
+
+| Propiedad | Uso |
+|---|---|
+| `renderer` | `single`, `categorized`, `graduated` |
+| `field` | atributo que controla la simbología |
+| `categories` | valores, etiquetas y colores para categorías |
+| `classes` | límites, etiquetas y colores para rangos |
+| `classification` | `equal_interval` o `quantile` |
+| `palette` | paleta usada para generar clases |
+| `weight`, `fillOpacity`, `radius` | apariencia geométrica |
+| `noDataColor` | color para registros sin valor temático |
+| `labelField` | atributo de etiqueta/tooltip |
+| `legend` | título y visibilidad de leyenda |
+
+`sort_order` controla el orden de capas dentro de cada proyecto. El administrador puede modificarlo por drag & drop.
 
 ### `sigmun_geo_points`
-- `lat`
-- `lon`
-- `geom geometry(Point,4326)`
-- `name`
-- `attributes jsonb`
+`lat`, `lon`, `geom geometry(Point,4326)`, `name`, `attributes jsonb`.
 
 ### `sigmun_geo_polygons`
-- `multipolygon geometry(MultiPolygon,4326)`
-- `name`
-- `attributes jsonb`
+`multipolygon geometry(MultiPolygon,4326)`, `name`, `attributes jsonb`.
+
+Los atributos pueden editarse desde el gestor avanzado. Las operaciones de escritura continúan sujetas a RLS.
 
 ## Información estadística
 
 ### `sigmun_stat_layers`
-Define nombre, descripción, archivo de origen, `schema_fields`, metadatos, configuración de gráficas y publicación.
+Define nombre, descripción, archivo de origen, `schema_fields`, metadatos, orden, publicación y `chart_config`.
+
+`schema_fields` puede almacenar `name`, `label`, `type` y `role` detectados/configurados.
+
+`chart_config` utiliza esta estructura:
+
+- `version`
+- `field_roles`
+  - `auto`
+  - `time`
+  - `dimension`
+  - `measure`
+  - `hidden`
+- `default_view`
+  - `chart`
+  - `aggregation`
+  - `time`
+  - `dimension`
+  - `series`
+  - `value`
+
+El dashboard público usa esta información como orientación, pero mantiene el análisis exploratorio: cada visitante puede reorganizar campos sin escribir cambios en Supabase.
 
 ### `sigmun_stat_records`
-Cada registro conserva los campos originales en `attributes jsonb`.
+Cada registro conserva los campos originales dentro de `attributes jsonb`.
 
 ## Identidad y roles
 
@@ -44,25 +73,13 @@ Cada registro conserva los campos originales en `attributes jsonb`.
 Usuarios autenticados de Supabase Auth.
 
 ### `sigmun_user_profiles`
-Perfil de autorización relacionado 1:1 con `auth.users`.
-
-Campos principales:
-- `id`
-- `email`
-- `full_name`
-- `department`
-- `role`: `admin`, `editor`, `viewer`
-- `permissions jsonb`
-- `is_active`
-- `last_login_at`
-
-La columna `role` no puede ser modificada directamente desde el navegador. Los cambios administrativos se realizan mediante una Edge Function validando primero que el solicitante sea un administrador activo.
+Perfil de autorización 1:1 con `auth.users`. Roles: `admin`, `editor`, `viewer`.
 
 ### `sigmun_access_status`
-Expone únicamente si SIGmun ya cuenta con un administrador. Permite que `admin.html` determine si debe mostrar el acceso normal o la configuración inicial.
+Indica si existe un administrador.
 
 ### `sigmun_bootstrap_control`
-Control interno de la clave de activación inicial. Tiene RLS y no posee lectura para `anon` ni `authenticated`. Solo la Edge Function de servidor puede verificar el hash.
+Control interno de la activación inicial.
 
 ### `sigmun_access_audit`
 Bitácora de altas, cambios de rol y bajas de cuentas.
@@ -77,6 +94,10 @@ Bitácora de altas, cambios de rol y bajas de cuentas.
 | Crear/editar proyectos | No | Sí | Sí |
 | Eliminar proyectos | No | No | Sí |
 | Cargar/editar/eliminar capas | No | Sí | Sí |
+| Editar atributos geográficos | No | Sí | Sí |
+| Configurar simbología/leyendas | No | Sí | Sí |
+| Configurar modelo estadístico | No | Sí | Sí |
+| Explorar dashboard público | Sí | Sí | Sí |
 | Crear/editar/eliminar temas | No | No | Sí |
 | Administrar usuarios | No | No | Sí |
 | Consultar auditoría | No | No | Sí |
@@ -84,11 +105,11 @@ Bitácora de altas, cambios de rol y bajas de cuentas.
 ## Edge Functions
 
 ### `sigmun-bootstrap-admin`
-Creación segura de la primera cuenta administrativa mediante clave de activación de un solo uso.
+Creación segura de la primera cuenta administrativa.
 
 ### `sigmun-user-admin`
-Lista, crea, actualiza y elimina cuentas. Valida el JWT del usuario solicitante y comprueba que su perfil sea `admin` y esté activo antes de usar las operaciones administrativas de Supabase Auth.
+Lista, crea, actualiza y elimina cuentas tras validar al administrador.
 
 ## RLS
 
-Las tablas SIGmun tienen Row Level Security habilitado. El contenido público puede consultarse sin iniciar sesión; las escrituras dependen del rol almacenado en `sigmun_user_profiles`.
+Las tablas SIGmun mantienen Row Level Security. El contenido público puede consultarse sin iniciar sesión; las escrituras dependen del rol almacenado en `sigmun_user_profiles`.
