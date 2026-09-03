@@ -1,0 +1,2 @@
+﻿id,nombre,tipo,multipolygon
+1,Área GeoJSON de ejemplo,Área,"{""type"":""MultiPolygon"",""coordinates"":[[[[-105.44,28.18],[-105.43,28.18],[-105.43,28.19],[-105.44,28.19],[-105.44,28.18]]]]}"

@@ -145,3 +145,22 @@ El lector de CSV/KML ahora intenta UTF-8 y, cuando detecta caracteres de reempla
 ## Actualización — CSV geográfico WKT / MultiPolygon
 
 El cargador geográfico admite CSV de puntos con `lat` y `lon`, y CSV de polígonos mediante columnas denominadas `wkt`, `geometry`, `geom`, `the_geom`, `polygon` o `multipolygon`. Se reconocen WKT `POINT`, `POLYGON` y `MULTIPOLYGON` en EPSG:4326. `POLYGON` se normaliza a `MultiPolygon` antes de enviarse a PostGIS. También se admite una geometría GeoJSON `MultiPolygon` serializada dentro del campo `multipolygon`. Las columnas restantes se conservan como atributos para filtros, simbología y ventanas de información del visor.
+
+
+## KML/KMZ grandes y geometrías lineales
+
+La versión 2026-09-03 incorpora un importador reforzado para KML/KMZ provenientes de
+ArcGIS, QGIS, Google Earth y otros sistemas que utilicen `MultiGeometry`, descripciones
+HTML o archivos grandes.
+
+Para habilitar almacenamiento de `LineString` y `MultiLineString`, aplica la migración:
+
+`supabase/migrations/20260903_kml_kmz_multiline_support.sql`
+
+Más información en `GUIA_KML_KMZ.md`.
+
+## Importación KML/KMZ por documentos
+
+Al seleccionar un KML o KMZ, `admin.html` analiza automáticamente su estructura y muestra los documentos cartográficos detectados. El administrador puede elegir **Importar como una sola capa** o **Separar automáticamente por documento**. En modo separado se crea una capa SIGmun por documento, con color inicial distinto, orden consecutivo, metadatos de procedencia y sus geometrías/atributos.
+
+`visor.html` agrupa esas capas por colección de origen dentro de **Capas disponibles**. Cada capa dispone de casilla de visibilidad y cada colección permite **Todas / Ninguna**. La leyenda y simbología se actualizan inmediatamente según las capas visibles.

@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const state = { session:null, profile:null, topics:[], projects:[], geo:[], stats:[], users:[], audit:[], editingUser:null };
+  const state = { session:null, profile:null, topics:[], projects:[], geo:[], stats:[], users:[], audit:[], editingUser:null, geoImport:{fileKey:null,parsed:null,analyzing:false} };
   const roleName = {admin:'Administrador',editor:'Editor',viewer:'Consulta'};
   const sectionName = {overview:'Resumen',users:'Usuarios y roles',topics:'Temas de consulta',projects:'Proyectos',geo:'Capas geográficas',stats:'Capas estadísticas',audit:'Registro de accesos'};
   const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -177,18 +177,73 @@
   }
 
   function setProgress(kind,text,pct){$(kind+'Progress').textContent=text;$(kind+'ProgressBar').style.width=`${Math.max(0,Math.min(100,pct))}%`}
+  function geoFileKey(file){return file?`${file.name}|${file.size}|${file.lastModified}`:''}
+  function selectedGeoImportMode(){return document.querySelector('input[name="geoImportMode"]:checked')?.value||'single'}
+  function geometryTypeForGroup(g){const n=[g.points?.length,g.polygons?.length,g.lines?.length].filter(Boolean).length;return n>1?'Mixed':g.lines?.length?'MultiLineString':g.polygons?.length?'MultiPolygon':'Point'}
+  function stripExtension(name){return String(name||'').replace(/\.[^.]+$/,'').trim()}
+  function resetKmlAnalysis(){state.geoImport={fileKey:null,parsed:null,analyzing:false};show('geoKmlModePanel',false);$('geoKmlGroupSummary').innerHTML='';$('geoKmlGroupCount').textContent='0'}
+  function renderKmlAnalysis(parsed,file){
+    const groups=parsed.groups||[],total=(parsed.points?.length||0)+(parsed.polygons?.length||0)+(parsed.lines?.length||0);
+    show('geoKmlModePanel',true);$('geoKmlGroupCount').textContent=groups.length;
+    const declared=Number(parsed.diagnostics?.documents||groups.length),empty=Math.max(0,declared-groups.length);
+    $('geoKmlDetectedTitle').textContent=declared>groups.length?`${declared} documentos declarados · ${groups.length} con geometrías`:groups.length>1?`${groups.length} documentos cartográficos detectados`:`${groups.length||1} documento cartográfico detectado`;
+    $('geoKmlDetectedText').textContent=`${file.name} · ${total.toLocaleString('es-MX')} geometrías · ${(parsed.points?.length||0).toLocaleString('es-MX')} puntos · ${(parsed.polygons?.length||0).toLocaleString('es-MX')} polígonos · ${(parsed.lines?.length||0).toLocaleString('es-MX')} líneas${empty?` · ${empty} documento${empty===1?'':'s'} contenedor/sin geometrías directas`:''}.`;
+    if(!$('geoName').value.trim())$('geoName').value=stripExtension(file.name);
+    $('geoKmlGroupSummary').innerHTML=groups.length?groups.map((g,i)=>`<span class="kml-group-chip" title="${esc(g.name)}"><i style="background:${SigmunTheme.colorAt(i,Math.max(groups.length,1),'categorical')}"></i><b>${esc(g.name)}</b><em>${g.count.toLocaleString('es-MX')}</em></span>`).join(''):'<div class="kml-analysis-error">No fue posible separar documentos; la importación seguirá disponible como una sola capa.</div>';
+    const split=document.querySelector('input[name="geoImportMode"][value="split"]');if(split){split.disabled=groups.length<2;if(groups.length>1)split.checked=true;}
+    if(groups.length<2){const single=document.querySelector('input[name="geoImportMode"][value="single"]');if(single)single.checked=true;}
+  }
+  async function analyzeSelectedGeoFile(force=false){
+    const file=$('geoFile').files[0];if(!file){resetKmlAnalysis();return null}const ext=(file.name.split('.').pop()||'').toLowerCase(),key=geoFileKey(file);
+    if(!['kml','kmz'].includes(ext)){resetKmlAnalysis();return null}
+    if(!force&&state.geoImport.fileKey===key&&state.geoImport.parsed)return state.geoImport.parsed;
+    if(state.geoImport.analyzing)return null;
+    state.geoImport={fileKey:key,parsed:null,analyzing:true};show('geoKmlModePanel',true);$('geoKmlDetectedTitle').textContent='Analizando documentos…';$('geoKmlDetectedText').textContent='Leyendo estructura, geometrías y atributos del archivo.';$('geoKmlGroupSummary').innerHTML='<span class="kml-group-chip"><span class="loader-mini"></span> Preparando inventario cartográfico…</span>';
+    try{const parsed=await SigmunData.parseGeoFile(file,{captureGroups:true,onProgress:(msg,pct)=>setProgress('geo',msg,Math.max(8,Math.min(38,pct||16)))});state.geoImport={fileKey:key,parsed,analyzing:false};renderKmlAnalysis(parsed,file);setProgress('geo',`Archivo analizado: ${(parsed.groups||[]).length} documentos listos para importar.`,38);return parsed}
+    catch(e){state.geoImport={fileKey:key,parsed:null,analyzing:false};$('geoKmlDetectedTitle').textContent='No fue posible analizar el archivo';$('geoKmlDetectedText').textContent=e.message;$('geoKmlGroupSummary').innerHTML=`<div class="kml-analysis-error">${esc(e.message)}</div>`;setProgress('geo','Error de análisis: '+e.message,0);return null}
+  }
+  $('geoFile').addEventListener('change',()=>{resetKmlAnalysis();analyzeSelectedGeoFile(true)});
+  async function storeGeoGroup(layer,group,bulk,onProgress){
+    const total=(group.points?.length||0)+(group.polygons?.length||0)+(group.lines?.length||0);let stored=0,lineWarning='';
+    if(bulk){await SigmunDB.insertGeoBatch(layer.id,{points:group.points||[],polygons:group.polygons||[],lines:group.lines||[]},onProgress);stored=total}
+    else{if(group.lines?.length)throw new Error('El backend todavía no tiene habilitado MultiLineString. Aplica la migración 20260903_kml_kmz_multiline_support.sql antes de separar este KML/KMZ por documentos.');if(group.points?.length){await SigmunDB.insertPoints(layer.id,group.points);stored+=group.points.length}if(group.polygons?.length){await SigmunDB.insertPolygons(layer.id,group.polygons);stored+=group.polygons.length}}
+    return{stored,lineWarning};
+  }
   $('uploadGeoBtn').onclick=async()=>{
-    const btn=$('uploadGeoBtn'),file=$('geoFile').files[0],name=$('geoName').value.trim();if(!file||!name)return toast('Selecciona un archivo y asigna un nombre.',true);
-    let layer=null;setBusy(btn,true,'Cargando…');setProgress('geo','Procesando archivo…',12);
+    const btn=$('uploadGeoBtn'),file=$('geoFile').files[0],baseName=$('geoName').value.trim();if(!file)return toast('Selecciona un archivo geográfico.',true);
+    const ext=(file.name.split('.').pop()||'').toLowerCase(),mode=['kml','kmz'].includes(ext)?selectedGeoImportMode():'single';
+    if(mode==='single'&&!baseName)return toast('Asigna un nombre a la capa.',true);
+    const created=[];setBusy(btn,true,'Cargando…');setProgress('geo','Procesando archivo…',12);
     try{
-      const parsed=await SigmunData.parseGeoFile(file);if(!parsed.points.length&&!parsed.polygons.length)throw new Error('No se encontraron puntos o polígonos compatibles.');
-      const geomType=parsed.points.length&&parsed.polygons.length?'Mixed':parsed.polygons.length?'MultiPolygon':'Point';
-      const maxOrder=Math.max(0,...state.geo.filter(x=>x.project_id===$('geoProject').value).map(x=>Number(x.sort_order)||0));
-      setProgress('geo',`Preparando ${parsed.points.length} puntos y ${parsed.polygons.length} polígonos${parsed.geometryKey?` · geometría: ${parsed.geometryKey}`:''}…`,30);
-      layer=await SigmunDB.createGeoLayer({project_id:$('geoProject').value,name,description:$('geoDescription').value.trim()||null,source_format:parsed.format,geometry_type:geomType,source_file_name:file.name,style:SigmunTheme.normalizeStyle({renderer:'single',color:$('geoColor').value,legend:{show:true,title:name,noDataLabel:'Sin dato'}}),metadata:{ignored_geometry_types:parsed.ignored,feature_count:parsed.points.length+parsed.polygons.length,geometry_source_field:parsed.geometryKey||null,latitude_field:parsed.latKey||null,longitude_field:parsed.lonKey||null},is_public:$('geoPublic').checked,is_visible:$('geoVisible').checked,sort_order:maxOrder+10,created_by:state.profile.id});
-      setProgress('geo','Almacenando geometrías en PostGIS…',48);if(parsed.points.length){await SigmunDB.insertPoints(layer.id,parsed.points);setProgress('geo',`${parsed.points.length} puntos almacenados…`,72)}if(parsed.polygons.length){await SigmunDB.insertPolygons(layer.id,parsed.polygons);setProgress('geo',`${parsed.polygons.length} polígonos almacenados…`,92)}
-      setProgress('geo',`Carga completada: ${parsed.points.length+parsed.polygons.length} elementos${parsed.ignored.length?' · omitidos '+[...new Set(parsed.ignored)].join(', '):''}.`,100);$('geoFile').value='';$('geoName').value='';$('geoDescription').value='';await refreshAll();toast('Capa geográfica almacenada. Ahora puedes configurar su simbología.');
-    }catch(e){if(layer?.id){try{await SigmunDB.deleteGeoLayer(layer.id)}catch(_){}}setProgress('geo','Error: '+e.message,0);toast(e.message,true)}finally{setBusy(btn,false)}
+      let parsed=(state.geoImport.fileKey===geoFileKey(file)&&state.geoImport.parsed)?state.geoImport.parsed:null;
+      if(!parsed)parsed=await SigmunData.parseGeoFile(file,{captureGroups:true,onProgress:(msg,pct)=>setProgress('geo',msg,Math.max(12,Math.min(40,pct||18)))});
+      parsed.lines=parsed.lines||[];parsed.groups=parsed.groups||SigmunData.buildKmlGroups(parsed);
+      const total=parsed.points.length+parsed.polygons.length+parsed.lines.length;if(!total){const d=parsed.diagnostics||{};throw new Error(`No se encontraron geometrías compatibles.${d.missing_xsi_namespace?' El KML presenta un namespace XML incompleto.':''} Revisado: ${d.placemarks||0} Placemark.`)}
+      const projectId=$('geoProject').value,maxOrder=Math.max(0,...state.geo.filter(x=>x.project_id===projectId).map(x=>Number(x.sort_order)||0));
+      const collectionName=baseName||stripExtension(file.name),importGroupId=(crypto.randomUUID?crypto.randomUUID():`kml-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      const common={project_id:projectId,description:$('geoDescription').value.trim()||null,source_format:parsed.format,source_file_name:file.name,is_public:$('geoPublic').checked,is_visible:$('geoVisible').checked,created_by:state.profile.id};
+      const sourceSummary={ignored_geometry_types:parsed.ignored||[],parser:parsed.parser||null,kml_file:parsed.kmlName||null,kml_entries:parsed.kmlEntries||[],kml_diagnostics:parsed.diagnostics||{},import_group_id:importGroupId,source_collection:collectionName,import_mode:mode==='split'?'split_kml_documents':'single_layer'};
+      if(mode==='split'&&parsed.groups.length>1){
+        const groups=parsed.groups.filter(g=>g.count>0);let doneTotal=0;
+        setProgress('geo',`Creando ${groups.length} capas SIGmun…`,42);
+        for(let i=0;i<groups.length;i++){
+          const g=groups[i],layerName=g.name||`Documento ${i+1}`,color=SigmunTheme.colorAt(i,groups.length,'categorical');
+          const metadata={...sourceSummary,source_document:g.name,source_group_index:i+1,source_group_count:groups.length,feature_count:g.count,point_count:g.points.length,polygon_count:g.polygons.length,line_count:g.lines.length};
+          const layer=await SigmunDB.createGeoLayer({...common,name:layerName,geometry_type:geometryTypeForGroup(g),sort_order:maxOrder+(i+1)*10,style:SigmunTheme.normalizeStyle({renderer:'single',color,legend:{show:true,title:layerName,noDataLabel:'Sin dato'}}),metadata});created.push(layer);
+          const bulk=await SigmunDB.geoBatchAvailable(layer.id);if(!bulk&&parsed.lines.length)throw new Error('Para separar este KMZ se requiere la migración PostGIS MultiLineString incluida en el paquete. El archivo contiene capas lineales que no pueden omitirse en modo separado.');
+          await storeGeoGroup(layer,g,bulk,(done,all)=>{const current=doneTotal+done,pct=45+Math.round((current/Math.max(total,1))*48);setProgress('geo',`Capa ${i+1}/${groups.length}: ${layerName} · ${current.toLocaleString('es-MX')} de ${total.toLocaleString('es-MX')} geometrías…`,pct)});
+          doneTotal+=g.count;metadata.stored_feature_count=g.count;metadata.line_support=bulk;await SigmunDB.updateGeoLayer(layer.id,{metadata});
+        }
+        setProgress('geo',`Importación completada: ${groups.length} capas creadas y ${total.toLocaleString('es-MX')} geometrías almacenadas.`,100);toast(`${groups.length} capas SIGmun creadas desde los documentos del ${ext.toUpperCase()}.`);
+      }else{
+        const typeCount=[parsed.points.length,parsed.polygons.length,parsed.lines.length].filter(Boolean).length,geomType=typeCount>1?'Mixed':parsed.lines.length?'MultiLineString':parsed.polygons.length?'MultiPolygon':'Point';
+        const name=baseName||collectionName,metadata={...sourceSummary,feature_count:total,point_count:parsed.points.length,polygon_count:parsed.polygons.length,line_count:parsed.lines.length,kml_groups:(parsed.group_summary||[])};
+        const layer=await SigmunDB.createGeoLayer({...common,name,geometry_type:geomType,sort_order:maxOrder+10,style:SigmunTheme.normalizeStyle({renderer:'single',color:$('geoColor').value,legend:{show:true,title:name,noDataLabel:'Sin dato'}}),metadata});created.push(layer);
+        const bulk=await SigmunDB.geoBatchAvailable(layer.id);let stored=0,lineWarning='';if(bulk){await SigmunDB.insertGeoBatch(layer.id,{points:parsed.points,polygons:parsed.polygons,lines:parsed.lines},(done,all)=>setProgress('geo',`Guardando ${done.toLocaleString('es-MX')} de ${all.toLocaleString('es-MX')} geometrías…`,45+Math.round((done/Math.max(all,1))*48)));stored=total}else{if(!parsed.points.length&&!parsed.polygons.length&&parsed.lines.length)throw new Error('El archivo contiene únicamente líneas. Aplica la migración de soporte MultiLineString incluida en SIGmun.');if(parsed.points.length){await SigmunDB.insertPoints(layer.id,parsed.points);stored+=parsed.points.length}if(parsed.polygons.length){await SigmunDB.insertPolygons(layer.id,parsed.polygons);stored+=parsed.polygons.length}if(parsed.lines.length)lineWarning=`${parsed.lines.length.toLocaleString('es-MX')} líneas no se almacenaron porque falta soporte MultiLineString.`}
+        metadata.stored_feature_count=stored;metadata.line_support=bulk;metadata.line_warning=lineWarning||null;await SigmunDB.updateGeoLayer(layer.id,{metadata});setProgress('geo',`Carga completada: ${stored.toLocaleString('es-MX')} elementos${lineWarning?' · '+lineWarning:''}`,100);toast(lineWarning?'Capa importada parcialmente.':'Capa geográfica almacenada.',!!lineWarning);
+      }
+      $('geoFile').value='';$('geoName').value='';$('geoDescription').value='';resetKmlAnalysis();await refreshAll();
+    }catch(e){for(const layer of created.reverse()){try{await SigmunDB.deleteGeoLayer(layer.id)}catch(_){}}setProgress('geo','Error: '+e.message,0);toast(e.message,true)}finally{setBusy(btn,false)}
   };
 
   function fillGeoFieldSelects(fields,style){
@@ -255,7 +310,7 @@
 
   function renderGeoFeatureList(){
     const term=($('geoFeatureSearch').value||'').toLowerCase(),features=geoEditor.geojson?.features||[];const filtered=features.filter(f=>!term||Object.values(f.properties||{}).some(v=>String(v??'').toLowerCase().includes(term))).slice(0,750);
-    $('geoFeatureList').innerHTML=filtered.map((f,i)=>`<button class="feature-item ${String(f.id)===String(geoEditor.selected?.id)?'active':''}" data-feature-id="${esc(f.id)}"><i class="bi ${f.geometry?.type==='Point'?'bi-geo-alt-fill':'bi-bounding-box'}"></i><span><b>${esc(f.properties?.name||`Elemento ${i+1}`)}</b><span>${esc(f.geometry?.type||'Geometría')} · ${esc(String(f.id).slice(0,12))}</span></span></button>`).join('')||'<div class="empty">No hay elementos coincidentes.</div>';
+    $('geoFeatureList').innerHTML=filtered.map((f,i)=>`<button class="feature-item ${String(f.id)===String(geoEditor.selected?.id)?'active':''}" data-feature-id="${esc(f.id)}"><i class="bi ${f.geometry?.type==='Point'?'bi-geo-alt-fill':(['LineString','MultiLineString'].includes(f.geometry?.type)?'bi-bezier2':'bi-bounding-box')}"></i><span><b>${esc(f.properties?.name||`Elemento ${i+1}`)}</b><span>${esc(f.geometry?.type||'Geometría')} · ${esc(String(f.id).slice(0,12))}</span></span></button>`).join('')||'<div class="empty">No hay elementos coincidentes.</div>';
     document.querySelectorAll('[data-feature-id]').forEach(b=>b.onclick=()=>selectGeoFeature(b.dataset.featureId));
   }
   $('geoFeatureSearch').oninput=renderGeoFeatureList;
