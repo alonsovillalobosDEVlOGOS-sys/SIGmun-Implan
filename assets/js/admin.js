@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const state = { session:null, profile:null, topics:[], projects:[], geo:[], stats:[], users:[], audit:[], editingUser:null, geoImport:{fileKey:null,parsed:null,analyzing:false} };
+  const state = { session:null, profile:null, topics:[], projects:[], geo:[], stats:[], users:[], audit:[], editingUser:null };
   const roleName = {admin:'Administrador',editor:'Editor',viewer:'Consulta'};
   const sectionName = {overview:'Resumen',users:'Usuarios y roles',topics:'Temas de consulta',projects:'Proyectos',geo:'Capas geográficas',stats:'Capas estadísticas',audit:'Registro de accesos'};
   const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -156,7 +156,7 @@
   document.querySelectorAll('[data-geo-tab]').forEach(b=>b.onclick=()=>setEditorTab('geo',b.dataset.geoTab));
   document.querySelectorAll('[data-stat-tab]').forEach(b=>b.onclick=()=>setEditorTab('stat',b.dataset.statTab));
 
-  function rendererLabel(r){return r==='categorized'?'Categorías':r==='graduated'?'Rangos':'Símbolo único'}
+  function rendererLabel(r){return r==='kml'?'Estilo KML original':r==='categorized'?'Categorías':r==='graduated'?'Rangos':'Símbolo único'}
   function layerLegendSummary(l){const s=SigmunTheme.normalizeStyle(l.style||{}),field=s.field?` · ${s.field}`:'';return `${rendererLabel(s.renderer)}${field}`}
 
   function renderGeo(){
@@ -177,79 +177,70 @@
   }
 
   function setProgress(kind,text,pct){$(kind+'Progress').textContent=text;$(kind+'ProgressBar').style.width=`${Math.max(0,Math.min(100,pct))}%`}
-  function geoFileKey(file){return file?`${file.name}|${file.size}|${file.lastModified}`:''}
-  function selectedGeoImportMode(){return document.querySelector('input[name="geoImportMode"]:checked')?.value||'single'}
-  function geometryTypeForGroup(g){const n=[g.points?.length,g.polygons?.length,g.lines?.length].filter(Boolean).length;return n>1?'Mixed':g.lines?.length?'MultiLineString':g.polygons?.length?'MultiPolygon':'Point'}
-  function stripExtension(name){return String(name||'').replace(/\.[^.]+$/,'').trim()}
-  function resetKmlAnalysis(){state.geoImport={fileKey:null,parsed:null,analyzing:false};show('geoKmlModePanel',false);$('geoKmlGroupSummary').innerHTML='';$('geoKmlGroupCount').textContent='0'}
-  function renderKmlAnalysis(parsed,file){
-    const groups=parsed.groups||[],total=(parsed.points?.length||0)+(parsed.polygons?.length||0)+(parsed.lines?.length||0);
-    show('geoKmlModePanel',true);$('geoKmlGroupCount').textContent=groups.length;
-    const declared=Number(parsed.diagnostics?.documents||groups.length),empty=Math.max(0,declared-groups.length);
-    $('geoKmlDetectedTitle').textContent=declared>groups.length?`${declared} documentos declarados · ${groups.length} con geometrías`:groups.length>1?`${groups.length} documentos cartográficos detectados`:`${groups.length||1} documento cartográfico detectado`;
-    $('geoKmlDetectedText').textContent=`${file.name} · ${total.toLocaleString('es-MX')} geometrías · ${(parsed.points?.length||0).toLocaleString('es-MX')} puntos · ${(parsed.polygons?.length||0).toLocaleString('es-MX')} polígonos · ${(parsed.lines?.length||0).toLocaleString('es-MX')} líneas${empty?` · ${empty} documento${empty===1?'':'s'} contenedor/sin geometrías directas`:''}.`;
-    if(!$('geoName').value.trim())$('geoName').value=stripExtension(file.name);
-    $('geoKmlGroupSummary').innerHTML=groups.length?groups.map((g,i)=>`<span class="kml-group-chip" title="${esc(g.name)}"><i style="background:${SigmunTheme.colorAt(i,Math.max(groups.length,1),'categorical')}"></i><b>${esc(g.name)}</b><em>${g.count.toLocaleString('es-MX')}</em></span>`).join(''):'<div class="kml-analysis-error">No fue posible separar documentos; la importación seguirá disponible como una sola capa.</div>';
-    const split=document.querySelector('input[name="geoImportMode"][value="split"]');if(split){split.disabled=groups.length<2;if(groups.length>1)split.checked=true;}
-    if(groups.length<2){const single=document.querySelector('input[name="geoImportMode"][value="single"]');if(single)single.checked=true;}
+  const geoImport={parsed:null,fileKey:''};
+  const importId=()=>globalThis.crypto?.randomUUID?.()||`sigmun-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  function geoTotal(x){return (x?.points?.length||0)+(x?.polygons?.length||0)+(x?.lines?.length||0)+(x?.overlays?.length||0)}
+  function geoType(x){const t=[x?.points?.length?'Point':'',x?.polygons?.length?'MultiPolygon':'',x?.lines?.length?'MultiLineString':'',x?.overlays?.length?'RasterOverlay':''].filter(Boolean);return t.length>1?'Mixed':t[0]||'Mixed'}
+  function kmlFallbackColor(parsed,group,index=0){
+    const item=group?.polygons?.[0]||group?.lines?.[0]||group?.points?.[0],a=item?.attributes||{},reg=parsed?.kmlStyles||{},ks=reg[a._kml_style]||{};
+    return a._kml_fill_color||a._kml_line_color||a._kml_icon_color||ks.fillColor||ks.lineColor||ks.iconColor||SigmunTheme.colorAt(index,12,'categorical');
   }
-  async function analyzeSelectedGeoFile(force=false){
-    const file=$('geoFile').files[0];if(!file){resetKmlAnalysis();return null}const ext=(file.name.split('.').pop()||'').toLowerCase(),key=geoFileKey(file);
-    if(!['kml','kmz'].includes(ext)){resetKmlAnalysis();return null}
-    if(!force&&state.geoImport.fileKey===key&&state.geoImport.parsed)return state.geoImport.parsed;
-    if(state.geoImport.analyzing)return null;
-    state.geoImport={fileKey:key,parsed:null,analyzing:true};show('geoKmlModePanel',true);$('geoKmlDetectedTitle').textContent='Analizando documentos…';$('geoKmlDetectedText').textContent='Leyendo estructura, geometrías y atributos del archivo.';$('geoKmlGroupSummary').innerHTML='<span class="kml-group-chip"><span class="loader-mini"></span> Preparando inventario cartográfico…</span>';
-    try{const parsed=await SigmunData.parseGeoFile(file,{captureGroups:true,onProgress:(msg,pct)=>setProgress('geo',msg,Math.max(8,Math.min(38,pct||16)))});state.geoImport={fileKey:key,parsed,analyzing:false};renderKmlAnalysis(parsed,file);setProgress('geo',`Archivo analizado: ${(parsed.groups||[]).length} documentos listos para importar.`,38);return parsed}
-    catch(e){state.geoImport={fileKey:key,parsed:null,analyzing:false};$('geoKmlDetectedTitle').textContent='No fue posible analizar el archivo';$('geoKmlDetectedText').textContent=e.message;$('geoKmlGroupSummary').innerHTML=`<div class="kml-analysis-error">${esc(e.message)}</div>`;setProgress('geo','Error de análisis: '+e.message,0);return null}
+  function inferKmlGroupField(group){
+    const items=[...(group?.points||[]),...(group?.polygons||[]),...(group?.lines||[])],priority=['ZS','USO','Uso','uso','TIPO','Tipo','tipo','CATEGORIA','Categoría','Categoria','CLASE','Clase','SUBTIPO','Subtipo','AMBITO','ÁMBITO'];
+    if(!items.length)return'';
+    const attrs=items.slice(0,5000).map(x=>x.attributes||{});
+    const fields=[...new Set(attrs.flatMap(a=>Object.keys(a).filter(k=>!k.startsWith('_kml_'))))];
+    for(const f of priority){
+      if(!fields.includes(f))continue;
+      const vals=new Set(attrs.map(a=>a[f]).filter(v=>v!==null&&v!==undefined&&v!=='').map(String));
+      if(vals.size>1&&vals.size<=60)return f;
+    }
+    return'';
   }
-  $('geoFile').addEventListener('change',()=>{resetKmlAnalysis();analyzeSelectedGeoFile(true)});
-  async function storeGeoGroup(layer,group,bulk,onProgress){
-    const total=(group.points?.length||0)+(group.polygons?.length||0)+(group.lines?.length||0);let stored=0,lineWarning='';
-    if(bulk){await SigmunDB.insertGeoBatch(layer.id,{points:group.points||[],polygons:group.polygons||[],lines:group.lines||[]},onProgress);stored=total}
-    else{if(group.lines?.length)throw new Error('El backend todavía no tiene habilitado MultiLineString. Aplica la migración 20260903_kml_kmz_multiline_support.sql antes de separar este KML/KMZ por documentos.');if(group.points?.length){await SigmunDB.insertPoints(layer.id,group.points);stored+=group.points.length}if(group.polygons?.length){await SigmunDB.insertPolygons(layer.id,group.polygons);stored+=group.polygons.length}}
-    return{stored,lineWarning};
+  function importStyle(parsed,group,name,index=0){
+    const isKml=['kml','kmz'].includes(parsed?.format),color=isKml?kmlFallbackColor(parsed,group,index):$('geoColor').value;
+    if(!isKml)return SigmunTheme.normalizeStyle({renderer:'single',color,legend:{show:true,title:name,noDataLabel:'Sin dato'}});
+    const legendField=inferKmlGroupField(group);
+    return SigmunTheme.normalizeStyle({renderer:'kml',preserveKmlStyle:true,kmlStyles:parsed.kmlStyles||{},kmlOpacity:1,kmlLegendField:legendField,color,opacity:1,fillOpacity:1,legend:{show:true,title:name,noDataLabel:'Sin dato'}});
   }
+  function renderKmlDetection(parsed){
+    const groups=parsed?.groups||[],d=parsed?.diagnostics||{};show('geoKmlModePanel',true);
+    $('geoKmlDetectedTitle').textContent=`${groups.length} capa${groups.length===1?'':'s'} con geometría detectada${groups.length===1?'':'s'}`;
+    $('geoKmlDetectedText').textContent=`${Number(d.placemarks||parsed.placemark_count||geoTotal(parsed)).toLocaleString('es-MX')} elementos · ${Number(d.styles||Object.keys(parsed.kmlStyles||{}).length).toLocaleString('es-MX')} estilos KML · ${Number((parsed.folders||d.folder_names||[]).length).toLocaleString('es-MX')} carpetas/subcarpetas.`;
+    $('geoKmlGroupCount').textContent=String(groups.length);
+    $('geoKmlGroupSummary').innerHTML=groups.slice(0,40).map((g,i)=>`<div class="kml-group-row"><i style="background:${kmlFallbackColor(parsed,g,i)}"></i><b>${esc(g.name)}</b><span>${g.featureCount.toLocaleString('es-MX')} elem.</span><small>${g.folders?.length?`${g.folders.length} carpeta${g.folders.length===1?'':'s'} · `:''}${g.styles?.length||0} estilo${g.styles?.length===1?'':'s'}</small></div>`).join('')+(groups.length>40?`<div class="muted-label">+ ${groups.length-40} documentos adicionales</div>`:'');
+    const split=document.querySelector('input[name="geoImportMode"][value="split"]');if(split&&groups.length>1)split.checked=true;
+  }
+  $('geoFile').addEventListener('change',async()=>{
+    const file=$('geoFile').files[0];geoImport.parsed=null;geoImport.fileKey='';show('geoKmlModePanel',false);if(!file)return;
+    const ext=(file.name.split('.').pop()||'').toLowerCase();if(!['kml','kmz'].includes(ext))return;
+    try{setProgress('geo','Analizando estructura KML/KMZ…',5);const parsed=await SigmunData.parseGeoFile(file,{onProgress:(txt,pct)=>setProgress('geo',txt,pct)});geoImport.parsed=parsed;geoImport.fileKey=`${file.name}|${file.size}|${file.lastModified}`;renderKmlDetection(parsed);setProgress('geo',`Listo: ${geoTotal(parsed).toLocaleString('es-MX')} geometrías y ${(parsed.groups||[]).length} capas detectadas.`,25)}catch(e){setProgress('geo','Error al analizar: '+e.message,0);toast(e.message,true)}
+  });
   $('uploadGeoBtn').onclick=async()=>{
-    const btn=$('uploadGeoBtn'),file=$('geoFile').files[0],baseName=$('geoName').value.trim();if(!file)return toast('Selecciona un archivo geográfico.',true);
-    const ext=(file.name.split('.').pop()||'').toLowerCase(),mode=['kml','kmz'].includes(ext)?selectedGeoImportMode():'single';
-    if(mode==='single'&&!baseName)return toast('Asigna un nombre a la capa.',true);
-    const created=[];setBusy(btn,true,'Cargando…');setProgress('geo','Procesando archivo…',12);
+    const btn=$('uploadGeoBtn'),file=$('geoFile').files[0],name=$('geoName').value.trim();if(!file||!name)return toast('Selecciona un archivo y asigna un nombre o colección.',true);
+    const created=[];setBusy(btn,true,'Cargando…');setProgress('geo','Procesando archivo…',8);
     try{
-      let parsed=(state.geoImport.fileKey===geoFileKey(file)&&state.geoImport.parsed)?state.geoImport.parsed:null;
-      if(!parsed)parsed=await SigmunData.parseGeoFile(file,{captureGroups:true,onProgress:(msg,pct)=>setProgress('geo',msg,Math.max(12,Math.min(40,pct||18)))});
-      parsed.lines=parsed.lines||[];parsed.groups=parsed.groups||SigmunData.buildKmlGroups(parsed);
-      const total=parsed.points.length+parsed.polygons.length+parsed.lines.length;if(!total){const d=parsed.diagnostics||{};throw new Error(`No se encontraron geometrías compatibles.${d.missing_xsi_namespace?' El KML presenta un namespace XML incompleto.':''} Revisado: ${d.placemarks||0} Placemark.`)}
-      const projectId=$('geoProject').value,maxOrder=Math.max(0,...state.geo.filter(x=>x.project_id===projectId).map(x=>Number(x.sort_order)||0));
-      const collectionName=baseName||stripExtension(file.name),importGroupId=(crypto.randomUUID?crypto.randomUUID():`kml-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-      const common={project_id:projectId,description:$('geoDescription').value.trim()||null,source_format:parsed.format,source_file_name:file.name,is_public:$('geoPublic').checked,is_visible:$('geoVisible').checked,created_by:state.profile.id};
-      const sourceSummary={ignored_geometry_types:parsed.ignored||[],parser:parsed.parser||null,kml_file:parsed.kmlName||null,kml_entries:parsed.kmlEntries||[],kml_diagnostics:parsed.diagnostics||{},import_group_id:importGroupId,source_collection:collectionName,import_mode:mode==='split'?'split_kml_documents':'single_layer'};
-      if(mode==='split'&&parsed.groups.length>1){
-        const groups=parsed.groups.filter(g=>g.count>0);let doneTotal=0;
-        setProgress('geo',`Creando ${groups.length} capas SIGmun…`,42);
-        for(let i=0;i<groups.length;i++){
-          const g=groups[i],layerName=g.name||`Documento ${i+1}`,color=SigmunTheme.colorAt(i,groups.length,'categorical');
-          const metadata={...sourceSummary,source_document:g.name,source_group_index:i+1,source_group_count:groups.length,feature_count:g.count,point_count:g.points.length,polygon_count:g.polygons.length,line_count:g.lines.length};
-          const layer=await SigmunDB.createGeoLayer({...common,name:layerName,geometry_type:geometryTypeForGroup(g),sort_order:maxOrder+(i+1)*10,style:SigmunTheme.normalizeStyle({renderer:'single',color,legend:{show:true,title:layerName,noDataLabel:'Sin dato'}}),metadata});created.push(layer);
-          const bulk=await SigmunDB.geoBatchAvailable(layer.id);if(!bulk&&parsed.lines.length)throw new Error('Para separar este KMZ se requiere la migración PostGIS MultiLineString incluida en el paquete. El archivo contiene capas lineales que no pueden omitirse en modo separado.');
-          await storeGeoGroup(layer,g,bulk,(done,all)=>{const current=doneTotal+done,pct=45+Math.round((current/Math.max(total,1))*48);setProgress('geo',`Capa ${i+1}/${groups.length}: ${layerName} · ${current.toLocaleString('es-MX')} de ${total.toLocaleString('es-MX')} geometrías…`,pct)});
-          doneTotal+=g.count;metadata.stored_feature_count=g.count;metadata.line_support=bulk;await SigmunDB.updateGeoLayer(layer.id,{metadata});
-        }
-        setProgress('geo',`Importación completada: ${groups.length} capas creadas y ${total.toLocaleString('es-MX')} geometrías almacenadas.`,100);toast(`${groups.length} capas SIGmun creadas desde los documentos del ${ext.toUpperCase()}.`);
-      }else{
-        const typeCount=[parsed.points.length,parsed.polygons.length,parsed.lines.length].filter(Boolean).length,geomType=typeCount>1?'Mixed':parsed.lines.length?'MultiLineString':parsed.polygons.length?'MultiPolygon':'Point';
-        const name=baseName||collectionName,metadata={...sourceSummary,feature_count:total,point_count:parsed.points.length,polygon_count:parsed.polygons.length,line_count:parsed.lines.length,kml_groups:(parsed.group_summary||[])};
-        const layer=await SigmunDB.createGeoLayer({...common,name,geometry_type:geomType,sort_order:maxOrder+10,style:SigmunTheme.normalizeStyle({renderer:'single',color:$('geoColor').value,legend:{show:true,title:name,noDataLabel:'Sin dato'}}),metadata});created.push(layer);
-        const bulk=await SigmunDB.geoBatchAvailable(layer.id);let stored=0,lineWarning='';if(bulk){await SigmunDB.insertGeoBatch(layer.id,{points:parsed.points,polygons:parsed.polygons,lines:parsed.lines},(done,all)=>setProgress('geo',`Guardando ${done.toLocaleString('es-MX')} de ${all.toLocaleString('es-MX')} geometrías…`,45+Math.round((done/Math.max(all,1))*48)));stored=total}else{if(!parsed.points.length&&!parsed.polygons.length&&parsed.lines.length)throw new Error('El archivo contiene únicamente líneas. Aplica la migración de soporte MultiLineString incluida en SIGmun.');if(parsed.points.length){await SigmunDB.insertPoints(layer.id,parsed.points);stored+=parsed.points.length}if(parsed.polygons.length){await SigmunDB.insertPolygons(layer.id,parsed.polygons);stored+=parsed.polygons.length}if(parsed.lines.length)lineWarning=`${parsed.lines.length.toLocaleString('es-MX')} líneas no se almacenaron porque falta soporte MultiLineString.`}
-        metadata.stored_feature_count=stored;metadata.line_support=bulk;metadata.line_warning=lineWarning||null;await SigmunDB.updateGeoLayer(layer.id,{metadata});setProgress('geo',`Carga completada: ${stored.toLocaleString('es-MX')} elementos${lineWarning?' · '+lineWarning:''}`,100);toast(lineWarning?'Capa importada parcialmente.':'Capa geográfica almacenada.',!!lineWarning);
+      const key=`${file.name}|${file.size}|${file.lastModified}`,parsed=(geoImport.parsed&&geoImport.fileKey===key)?geoImport.parsed:await SigmunData.parseGeoFile(file,{onProgress:(txt,pct)=>setProgress('geo',txt,pct)});
+      if(!geoTotal(parsed))throw new Error('No se encontraron puntos, polígonos o líneas compatibles.');
+      const isKml=['kml','kmz'].includes(parsed.format),mode=isKml?(document.querySelector('input[name="geoImportMode"]:checked')?.value||'single'):'single',groups=mode==='split'&&parsed.groups?.length>1?parsed.groups:[{name,points:parsed.points||[],polygons:parsed.polygons||[],lines:parsed.lines||[],overlays:parsed.overlays||[],featureCount:geoTotal(parsed),folders:parsed.folders||[],styles:Object.keys(parsed.kmlStyles||{})}];
+      const projectId=$('geoProject').value,groupId=importId(),baseOrder=Math.max(0,...state.geo.filter(x=>x.project_id===projectId).map(x=>Number(x.sort_order)||0));let completed=0,total=groups.reduce((a,g)=>a+geoTotal(g),0);
+      for(let i=0;i<groups.length;i++){
+        const g=groups[i],layerName=mode==='split'?(g.name||`${name} ${i+1}`):name,count=geoTotal(g);if(!count)continue;
+        const metadata={ignored_geometry_types:parsed.ignored||[],feature_count:count,point_count:g.points?.length||0,polygon_count:g.polygons?.length||0,line_count:g.lines?.length||0,raster_overlay_count:g.overlays?.length||0,raster_overlays:g.overlays||[],parser:parsed.parser||null,kml_file:parsed.kmlName||null,kml_entries:parsed.kmlEntries||[],kml_diagnostics:parsed.diagnostics||{},import_mode:mode==='split'?'split_kml_documents':'single_layer',import_group_id:groupId,source_collection:name,source_document:mode==='split'?g.name:null,source_group_index:i+1,source_group_count:groups.length,folder_paths:g.folders||[],kml_style_ids:g.styles||[]};
+        setProgress('geo',`Creando capa ${i+1} de ${groups.length}: ${layerName}…`,25+Math.round((completed/Math.max(1,total))*55));
+        const layer=await SigmunDB.createGeoLayer({project_id:projectId,name:layerName,description:$('geoDescription').value.trim()||null,source_format:parsed.format,geometry_type:geoType(g),source_file_name:file.name,style:importStyle(parsed,g,layerName,i),metadata,is_public:$('geoPublic').checked,is_visible:$('geoVisible').checked,sort_order:baseOrder+(i+1)*10,created_by:state.profile.id});created.push(layer);
+        if(SigmunDB.insertGeoBatch){await SigmunDB.insertGeoBatch(layer.id,g,(done,n)=>{const overall=completed+done;setProgress('geo',`Almacenando ${layerName}: ${done.toLocaleString('es-MX')} / ${n.toLocaleString('es-MX')}…`,28+Math.round((overall/Math.max(1,total))*66))})}
+        else{if(g.points?.length)await SigmunDB.insertPoints(layer.id,g.points);if(g.polygons?.length)await SigmunDB.insertPolygons(layer.id,g.polygons);if(g.lines?.length)await SigmunDB.insertLines(layer.id,g.lines)}
+        completed+=count;
       }
-      $('geoFile').value='';$('geoName').value='';$('geoDescription').value='';resetKmlAnalysis();await refreshAll();
-    }catch(e){for(const layer of created.reverse()){try{await SigmunDB.deleteGeoLayer(layer.id)}catch(_){}}setProgress('geo','Error: '+e.message,0);toast(e.message,true)}finally{setBusy(btn,false)}
+      setProgress('geo',`Carga completada: ${completed.toLocaleString('es-MX')} elementos en ${created.length} capa${created.length===1?'':'s'}. Los estilos KML originales y subcarpetas fueron conservados.`,100);$('geoFile').value='';$('geoName').value='';$('geoDescription').value='';geoImport.parsed=null;geoImport.fileKey='';show('geoKmlModePanel',false);await refreshAll();toast(created.length>1?`${created.length} capas geográficas almacenadas.`:'Capa geográfica almacenada.');
+    }catch(e){for(const layer of [...created].reverse()){try{await SigmunDB.deleteGeoLayer(layer.id)}catch(_){}}setProgress('geo','Error: '+e.message,0);toast(e.message,true)}finally{setBusy(btn,false)}
   };
 
   function fillGeoFieldSelects(fields,style){
     const opts='<option value="">— Sin campo —</option>'+fields.map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join('');
     $('geoStyleField').innerHTML=opts;$('geoLabelField').innerHTML=opts;
-    $('geoStyleField').value=fields.includes(style.field)?style.field:'';$('geoLabelField').value=fields.includes(style.labelField)?style.labelField:(fields.includes('name')?'name':'');
+    const thematicField=style.renderer==='kml'?(style.kmlLegendField||style.field):style.field;$('geoStyleField').value=fields.includes(thematicField)?thematicField:'';$('geoLabelField').value=fields.includes(style.labelField)?style.labelField:(fields.includes('name')?'name':'');
   }
   function readGeoClasses(renderer){
     if(renderer==='categorized')return [...$('geoClassEditor').querySelectorAll('[data-category-row]')].map(r=>({value:r.dataset.value,label:r.querySelector('[data-class-label]').value,color:r.querySelector('[data-class-color]').value}));
@@ -257,8 +248,8 @@
     return [];
   }
   function readGeoStyle(){
-    const renderer=$('geoRenderer').value,base=SigmunTheme.normalizeStyle(geoEditor.layer?.style||{});
-    const out={...base,renderer,field:$('geoStyleField').value,color:$('editGeoColor').value,palette:$('geoPalette').value,weight:Number($('geoWeight').value)||2,fillOpacity:Number($('geoFillOpacity').value),radius:Number($('geoRadius').value)||7,noDataColor:$('geoNoDataColor').value,classification:$('geoClassification').value,classCount:Number($('geoClassCount').value)||5,labelField:$('geoLabelField').value,legend:{...(base.legend||{}),show:$('geoLegendShow').checked,title:$('geoLegendTitle').value.trim(),noDataLabel:'Sin dato'}};
+    const renderer=$('geoRenderer').value,base=SigmunTheme.normalizeStyle(geoEditor.layer?.style||{}),opacity=Number($('geoFillOpacity').value);
+    const out={...base,renderer,field:renderer==='kml'?'':$('geoStyleField').value,kmlLegendField:renderer==='kml'?$('geoStyleField').value:(base.kmlLegendField||''),color:$('editGeoColor').value,palette:$('geoPalette').value,weight:Number($('geoWeight').value)||2,fillOpacity:renderer==='kml'?base.fillOpacity:(Number.isFinite(opacity)?opacity:.32),kmlOpacity:renderer==='kml'?(Number.isFinite(opacity)?opacity:1):(base.kmlOpacity??1),preserveKmlStyle:renderer==='kml',radius:Number($('geoRadius').value)||7,noDataColor:$('geoNoDataColor').value,classification:$('geoClassification').value,classCount:Number($('geoClassCount').value)||5,labelField:$('geoLabelField').value,legend:{...(base.legend||{}),show:$('geoLegendShow').checked,title:$('geoLegendTitle').value.trim(),noDataLabel:'Sin dato'}};
     if(renderer==='categorized')out.categories=readGeoClasses(renderer),out.classes=[];
     else if(renderer==='graduated')out.classes=readGeoClasses(renderer),out.categories=[];
     else out.categories=[],out.classes=[];
@@ -267,6 +258,7 @@
   function renderGeoClassEditor(styleInput){
     const style=SigmunTheme.normalizeStyle(styleInput),box=$('geoClassEditor');
     if(style.renderer==='single'){box.innerHTML='<div class="class-empty">El símbolo único usa el color base para todos los elementos.</div>';return;}
+    if(style.renderer==='kml'){const items=SigmunTheme.legendItems(style,geoEditor.geojson?.features||[]);box.innerHTML=items.length?items.slice(0,80).map(i=>`<div class="class-row kml-class-row"><input class="swatch-input" type="color" value="${esc(i.color)}" disabled><div class="class-value" title="${esc(i.label)}">${esc(i.label)}</div><div class="muted-label">${Number(i.count||0).toLocaleString('es-MX')} elementos · original KML</div></div>`).join(''):'<div class="class-empty">No se encontraron estilos KML asociados a los elementos.</div>';return;}
     if(style.renderer==='categorized'){
       box.innerHTML=(style.categories||[]).map((c,i)=>`<div class="class-row" data-category-row data-value="${esc(c.value)}"><input class="swatch-input" data-class-color type="color" value="${esc(c.color)}"><div class="class-value" title="${esc(c.value)}">${esc(c.value)}</div><input class="control" data-class-label type="text" value="${esc(c.label||c.value)}" placeholder="Etiqueta de leyenda"></div>`).join('')||'<div class="class-empty">Selecciona un campo y pulsa “Generar clases”.</div>';
     }else{
@@ -276,10 +268,10 @@
   }
   function updateGeoRendererUI(generate=false){
     const renderer=$('geoRenderer').value;$('graduatedOptions').style.display=renderer==='graduated'?'grid':'none';
-    if(generate&&renderer!=='single')generateGeoClasses();else renderGeoPreview();
+    if(generate&&['categorized','graduated'].includes(renderer))generateGeoClasses();else{renderGeoClassEditor(readGeoStyle());renderGeoPreview();}
   }
   function generateGeoClasses(){
-    if(!geoEditor.geojson)return;const renderer=$('geoRenderer').value,field=$('geoStyleField').value,palette=$('geoPalette').value;if(renderer!=='single'&&!field){toast('Selecciona el campo que controlará la simbología.',true);return;}
+    if(!geoEditor.geojson)return;const renderer=$('geoRenderer').value,field=$('geoStyleField').value,palette=$('geoPalette').value;if(['categorized','graduated'].includes(renderer)&&!field){toast('Selecciona el campo que controlará la simbología.',true);return;} if(renderer==='kml'){renderGeoClassEditor(readGeoStyle());renderGeoPreview();return;}
     let style=readGeoStyle();
     if(renderer==='categorized')style.categories=SigmunTheme.buildCategories(geoEditor.geojson.features,field,palette,style.categories);
     if(renderer==='graduated')style.classes=SigmunTheme.buildClasses(geoEditor.geojson.features,field,$('geoClassCount').value,$('geoClassification').value,palette);
@@ -292,7 +284,7 @@
   async function editGeo(id){
     const l=state.geo.find(x=>x.id===id);if(!l)return;geoEditor.layer=l;geoEditor.selected=null;setEditorTab('geo','general');
     $('editGeoId').value=l.id;$('editGeoName').value=l.name;$('editGeoDescription').value=l.description||'';$('editGeoOrder').value=l.sort_order||0;$('editGeoPublic').checked=!!l.is_public;$('editGeoVisible').checked=!!l.is_visible;$('geoEditorSubtitle').textContent=`${projectName(l.project_id)} · ${l.geometry_type} · ${String(l.source_format||'').toUpperCase()}`;
-    const style=SigmunTheme.normalizeStyle(l.style||{});$('geoRenderer').value=style.renderer;$('editGeoColor').value=style.color;$('geoPalette').value=style.palette||'municipal';$('geoWeight').value=style.weight;$('geoFillOpacity').value=style.fillOpacity;$('geoRadius').value=style.radius;$('geoNoDataColor').value=style.noDataColor;$('geoClassification').value=style.classification;$('geoClassCount').value=String(style.classCount||5);$('geoLegendTitle').value=style.legend?.title||l.name;$('geoLegendShow').checked=style.legend?.show!==false;
+    const style=SigmunTheme.normalizeStyle(l.style||{});$('geoRenderer').value=style.renderer;$('editGeoColor').value=style.color;$('geoPalette').value=style.palette||'municipal';$('geoWeight').value=style.weight;$('geoFillOpacity').value=style.renderer==='kml'?(style.kmlOpacity??1):style.fillOpacity;$('geoRadius').value=style.radius;$('geoNoDataColor').value=style.noDataColor;$('geoClassification').value=style.classification;$('geoClassCount').value=String(style.classCount||5);$('geoLegendTitle').value=style.legend?.title||l.name;$('geoLegendShow').checked=style.legend?.show!==false;
     openModal('geoEditModal');$('geoClassEditor').innerHTML='<div class="class-empty">Cargando atributos…</div>';$('geoFeatureList').innerHTML='<div class="empty">Cargando elementos…</div>';
     try{geoEditor.geojson=await SigmunDB.geojson(id);const fields=SigmunTheme.fieldList(geoEditor.geojson.features);fillGeoFieldSelects(fields,style);renderGeoClassEditor(style);updateGeoRendererUI(false);renderGeoFeatureList();ensureGeoPreviewMap();setTimeout(()=>{geoEditor.previewMap.invalidateSize();renderGeoPreview();},80)}catch(e){toast(e.message,true)}
   }
@@ -303,14 +295,28 @@
   }
   function renderGeoPreview(){
     if(!geoEditor.previewMap||!geoEditor.geojson)return;const style=readGeoStyle();if(geoEditor.previewLayer)geoEditor.previewMap.removeLayer(geoEditor.previewLayer);
-    geoEditor.previewLayer=L.geoJSON(geoEditor.geojson,{style:f=>SigmunTheme.leafletPathStyle(style,f),pointToLayer:(f,ll)=>L.circleMarker(ll,SigmunTheme.leafletPointStyle(style,f)),onEachFeature:(f,layer)=>{const label=style.labelField?f.properties?.[style.labelField]:f.properties?.name;if(label!==undefined&&label!==null&&label!=='')layer.bindTooltip(String(label),{sticky:true});layer.on('click',()=>selectGeoFeature(String(f.id)));}}).addTo(geoEditor.previewMap);
-    const items=style.legend?.show===false?[]:SigmunTheme.legendItems(style);$('geoPreviewLegend').innerHTML=items.map(i=>`<span class="legend-chip"><i style="background:${i.color}"></i>${esc(i.label)}</span>`).join('');$('geoPreviewSummary').textContent=`${geoEditor.geojson.features.length.toLocaleString('es-MX')} elementos · ${rendererLabel(style.renderer)}${style.field?' por '+style.field:''}`;
+    const group=L.featureGroup();
+    const vector=L.geoJSON(geoEditor.geojson,{
+      style:f=>SigmunTheme.leafletPathStyle(style,f),
+      pointToLayer:(f,ll)=>{
+        const k=SigmunTheme.kmlResolvedStyle(style,f),iconUrl=SigmunTheme.isKmlRenderer(style)?k.iconDataUrl:null;
+        if(iconUrl){const scale=Math.max(.25,Math.min(2.5,Number(k.iconScale)||1)),size=Math.max(7,Math.min(48,32*scale));return L.marker(ll,{icon:L.icon({iconUrl,iconSize:[size,size],iconAnchor:[size/2,size/2]}),opacity:SigmunTheme.clamp01(k.iconOpacity??1)*SigmunTheme.clamp01(style.kmlOpacity)})}
+        return L.circleMarker(ll,SigmunTheme.leafletPointStyle(style,f));
+      },
+      onEachFeature:(f,layer)=>{const label=style.labelField?f.properties?.[style.labelField]:f.properties?.name;if(label!==undefined&&label!==null&&label!=='')layer.bindTooltip(String(label),{sticky:true});layer.on('click',()=>selectGeoFeature(String(f.id)));}
+    });
+    vector.eachLayer(l=>group.addLayer(l));
+    const rasters=Array.isArray(geoEditor.layer?.metadata?.raster_overlays)?geoEditor.layer.metadata.raster_overlays:[];
+    rasters.forEach(ov=>{const url=ov.dataUrl||ov.image_href||ov.imageUrl||'';if(url&&[ov.south,ov.west,ov.north,ov.east].every(v=>Number.isFinite(Number(v))))group.addLayer(L.imageOverlay(url,[[Number(ov.south),Number(ov.west)],[Number(ov.north),Number(ov.east)]],{opacity:SigmunTheme.clamp01(ov.opacity??1)*SigmunTheme.clamp01(style.kmlOpacity??1)}))});
+    geoEditor.previewLayer=group.addTo(geoEditor.previewMap);
+    const items=style.legend?.show===false?[]:SigmunTheme.legendItems(style,geoEditor.geojson.features);$('geoPreviewLegend').innerHTML=items.map(i=>`<span class="legend-chip"><i style="background:${i.color}"></i>${esc(i.label)}</span>`).join('');
+    const total=geoEditor.geojson.features.length+rasters.length;$('geoPreviewSummary').textContent=`${total.toLocaleString('es-MX')} elementos · ${geoEditor.layer?.geometry_type==='RasterOverlay'?'Cobertura ráster':rendererLabel(style.renderer)}${style.field?' por '+style.field:''}`;
   }
   $('fitGeoPreviewBtn').onclick=()=>{const b=geoEditor.previewLayer?.getBounds();if(b?.isValid())geoEditor.previewMap.fitBounds(b,{padding:[20,20],maxZoom:17})};
 
   function renderGeoFeatureList(){
     const term=($('geoFeatureSearch').value||'').toLowerCase(),features=geoEditor.geojson?.features||[];const filtered=features.filter(f=>!term||Object.values(f.properties||{}).some(v=>String(v??'').toLowerCase().includes(term))).slice(0,750);
-    $('geoFeatureList').innerHTML=filtered.map((f,i)=>`<button class="feature-item ${String(f.id)===String(geoEditor.selected?.id)?'active':''}" data-feature-id="${esc(f.id)}"><i class="bi ${f.geometry?.type==='Point'?'bi-geo-alt-fill':(['LineString','MultiLineString'].includes(f.geometry?.type)?'bi-bezier2':'bi-bounding-box')}"></i><span><b>${esc(f.properties?.name||`Elemento ${i+1}`)}</b><span>${esc(f.geometry?.type||'Geometría')} · ${esc(String(f.id).slice(0,12))}</span></span></button>`).join('')||'<div class="empty">No hay elementos coincidentes.</div>';
+    $('geoFeatureList').innerHTML=filtered.map((f,i)=>`<button class="feature-item ${String(f.id)===String(geoEditor.selected?.id)?'active':''}" data-feature-id="${esc(f.id)}"><i class="bi ${f.geometry?.type==='Point'?'bi-geo-alt-fill':'bi-bounding-box'}"></i><span><b>${esc(f.properties?.name||`Elemento ${i+1}`)}</b><span>${esc(f.geometry?.type||'Geometría')} · ${esc(String(f.id).slice(0,12))}</span></span></button>`).join('')||'<div class="empty">No hay elementos coincidentes.</div>';
     document.querySelectorAll('[data-feature-id]').forEach(b=>b.onclick=()=>selectGeoFeature(b.dataset.featureId));
   }
   $('geoFeatureSearch').oninput=renderGeoFeatureList;
@@ -328,7 +334,7 @@
 
   $('saveGeoEditBtn').onclick=async()=>{
     const id=$('editGeoId').value,l=state.geo.find(x=>x.id===id);if(!l)return;let style=readGeoStyle();
-    if(style.renderer!=='single'&&!style.field)return toast('La simbología temática requiere seleccionar un campo.',true);
+    if(['categorized','graduated'].includes(style.renderer)&&!style.field)return toast('La simbología temática requiere seleccionar un campo.',true);
     if(style.renderer==='categorized'&&!style.categories.length)style.categories=SigmunTheme.buildCategories(geoEditor.geojson?.features||[],style.field,style.palette);
     if(style.renderer==='graduated'&&!style.classes.length)style.classes=SigmunTheme.buildClasses(geoEditor.geojson?.features||[],style.field,style.classCount,style.classification,style.palette);
     try{await SigmunDB.updateGeoLayer(id,{name:$('editGeoName').value.trim(),description:$('editGeoDescription').value.trim()||null,sort_order:Number($('editGeoOrder').value)||0,style,is_public:$('editGeoPublic').checked,is_visible:$('editGeoVisible').checked});closeModal('geoEditModal');await refreshAll();toast('Simbología, leyenda y configuración guardadas.')}catch(e){toast(e.message,true)}

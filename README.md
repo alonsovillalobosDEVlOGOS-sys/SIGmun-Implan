@@ -140,3 +140,7 @@ SIGmun conserva la simbología declarada en KML/KMZ: colores KML `aabbggrr`, alf
 El parser registra además la procedencia de cada elemento mediante `_kml_document`, `_kml_document_path`, `_kml_folder`, `_kml_folder_path`, `_kml_subfolder`, `_kml_hierarchy` y `_kml_style`. En el visor, las capas KML pueden desplegar sus subcarpetas/categorías, activar o desactivar cada grupo y ajustar su opacidad de forma independiente sin alterar los datos almacenados.
 
 La capa PMOTDU ya existente en Supabase fue actualizada para usar `renderer: kml`. Las 57,827 entidades que contienen `_kml_style` cuentan con correspondencia en el registro de estilos; `Usos de Suelo` usa `ZS` como campo preferente de leyenda y conserva los colores originales del KMZ.
+
+## Visor PMOTDU profesional · 2026-09-04
+
+La versión actual conserva simbología nativa KML/KMZ por entidad, clasifica `Usos de Suelo` mediante el campo `ZS`, soporta Style/StyleMap, alpha KML, iconos embebidos, GroundOverlay, MultiPolygon y MultiLineString, y permite encender/apagar clases y ajustar opacidad por capa. Los recursos locales llevan un parámetro de versión para evitar caché obsoleta después de desplegar en GitHub Pages. Ver `VALIDACION_PMOTDU_PRO_2026-09-04.md`.
