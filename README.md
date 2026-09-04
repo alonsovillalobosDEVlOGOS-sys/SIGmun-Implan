@@ -144,3 +144,9 @@ La capa PMOTDU ya existente en Supabase fue actualizada para usar `renderer: kml
 ## Visor PMOTDU profesional · 2026-09-04
 
 La versión actual conserva simbología nativa KML/KMZ por entidad, clasifica `Usos de Suelo` mediante el campo `ZS`, soporta Style/StyleMap, alpha KML, iconos embebidos, GroundOverlay, MultiPolygon y MultiLineString, y permite encender/apagar clases y ajustar opacidad por capa. Los recursos locales llevan un parámetro de versión para evitar caché obsoleta después de desplegar en GitHub Pages. Ver `VALIDACION_PMOTDU_PRO_2026-09-04.md`.
+
+## Composición cartográfica e impresión profesional · 2026-09-04e
+
+El visor incorpora una leyenda cartográfica simplificada: las capas con simbología uniforme muestran una sola entrada por capa, mientras que las capas temáticas muestran una sola entrada por clase/subcapa visible. Las entidades individuales ya no generan renglones repetitivos en la leyenda.
+
+El botón **Imprimir** abre un configurador de hoja con tamaños Carta, A4, Oficio, Legal, Tabloide y A3, siempre en orientación vertical. La salida utiliza una sola página y conserva la extensión, capas, subcapas y opacidades visibles. El cuadro inferior incluye logotipos institucionales, proyecto, descripción, simbología visible, clave del plano, norte, escala aproximada, sistema WGS84 / EPSG:4326, mapa base, fecha y elaboración de Planeación Estratégica del IMPLAN Delicias 2026.

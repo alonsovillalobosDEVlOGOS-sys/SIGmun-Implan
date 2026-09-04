@@ -77,7 +77,39 @@
   function rendererName(r,type=''){if(type==='RasterOverlay')return'Cobertura ráster';return r==='kml'?'Estilo KML original':r==='categorized'?'Categorías':r==='graduated'?'Rangos':'Símbolo único'}
   function rendererDetail(x){const s=x.style;if(s.renderer==='kml'){const f=s.kmlLegendField||SigmunTheme.inferKmlLegendField(x.geojson.features||[]);return f?`${f} · ${x.subgroups.length} clases`:`${x.subgroups.length} estilos`}if(s.renderer==='categorized')return s.field?`${s.field} · ${x.subgroups.length||s.categories?.length||0} clases`:'';if(s.renderer==='graduated')return s.field?`${s.field} · ${s.classes?.length||0} rangos`:'';return''}
   function visibleFeatures(x){if(!x)return[];if(!x.disabledSubgroups.size)return x.geojson.features||[];return(x.geojson.features||[]).filter((f,i)=>{const key=x.fidToGroup?.get(featureId(f,i));return!key||!x.disabledSubgroups.has(key)})}
-  function miniLegend(obj){const items=SigmunTheme.legendItems(obj.style,visibleFeatures(obj)).slice(0,6),all=SigmunTheme.legendItems(obj.style,visibleFeatures(obj));if(obj.style.renderer==='single'||!items.length)return'';return`<div class="layer-mini-legend">${items.map(i=>`<span title="${esc(i.label)}"><i style="background:${i.color};opacity:${i.opacity??1}"></i>${esc(i.label)}</span>`).join('')}${all.length>6?`<em>+${all.length-6}</em>`:''}</div>`}
+  function legendColorKey(item){return `${String(item?.color||'#64748b').toLowerCase()}|${Math.round(SigmunTheme.clamp01(item?.opacity??1)*100)}`}
+  function meaningfulLegendField(x){
+    const s=x.style||{};
+    if(s.renderer==='categorized'||s.renderer==='graduated')return s.field||'';
+    if(s.renderer==='kml')return s.kmlLegendField||SigmunTheme.inferKmlLegendField(x.geojson.features||[])||'';
+    return'';
+  }
+  function simplifiedLegendItems(x){
+    if(!x)return[];
+    const features=visibleFeatures(x),raw=SigmunTheme.legendItems(x.style,features),field=meaningfulLegendField(x),thematic=!!field&&(x.style.renderer==='kml'||x.style.renderer==='categorized'||x.style.renderer==='graduated');
+    if(x.def.geometry_type==='RasterOverlay')return[{label:x.def.name,color:'#62b5e5',opacity:x.opacity,count:x.overlayCount||1}];
+    if(!raw.length)return[];
+    if(thematic){
+      const byLabel=new Map();
+      for(const item of raw){
+        const label=String(item.label??'Sin dato').trim()||'Sin dato',key=label.toLocaleLowerCase('es-MX');
+        if(!byLabel.has(key))byLabel.set(key,{...item,label,count:0});
+        const hit=byLabel.get(key);hit.count+=(Number(item.count)||0);if(!hit.color&&item.color)hit.color=item.color;
+      }
+      return[...byLabel.values()].sort((a,b)=>String(a.label).localeCompare(String(b.label),'es',{numeric:true}));
+    }
+    const byColor=new Map();
+    for(const item of raw){const key=legendColorKey(item);if(!byColor.has(key))byColor.set(key,{...item,count:0});byColor.get(key).count+=(Number(item.count)||0)}
+    const merged=[...byColor.values()];
+    if(merged.length===1)return[{...merged[0],label:x.def.name,count:features.length+(x.overlayCount||0)}];
+    return merged.slice(0,8).map((item,i)=>({...item,label:(item.label&&!/^\d+$/.test(String(item.label))&&!/^way\//i.test(String(item.label))&&!/^fid\b/i.test(String(item.label)))?item.label:`${x.def.name} · símbolo ${i+1}`}));
+  }
+  function legendGeometryKind(x){const t=x?.def?.geometry_type||'';if(t==='RasterOverlay')return'raster';if(/Point/i.test(t))return'point';if(/Line/i.test(t))return'line';return'polygon'}
+  function legendSymbolHtml(x,item,cls='legend-symbol'){
+    const kind=legendGeometryKind(x),opacity=SigmunTheme.clamp01(item?.opacity??1)*SigmunTheme.clamp01(x?.opacity??1),color=item?.color||'#64748b';
+    return`<i class="${cls} ${cls}-${kind}" style="--legend-color:${color};--legend-opacity:${opacity}"></i>`;
+  }
+  function miniLegend(obj){const all=simplifiedLegendItems(obj),items=all.slice(0,6);if((obj.style.renderer==='single'&&all.length<=1)||!items.length)return'';return`<div class="layer-mini-legend">${items.map(i=>`<span title="${esc(i.label)}">${legendSymbolHtml(obj,i,'mini-symbol')}${esc(i.label)}</span>`).join('')}${all.length>6?`<em>+${all.length-6}</em>`:''}</div>`}
   function collectionGroups(arr){const mapg=new Map();for(const x of arr){const m=x.def.metadata||{},key=m.import_group_id?`g:${m.import_group_id}`:'standalone',title=m.source_collection||'Capas independientes';if(!mapg.has(key))mapg.set(key,{key,title,layers:[]});mapg.get(key).layers.push(x)}return[...mapg.values()]}
   function subgroupRows(x){
     if(!x.subgroups.length)return'';
@@ -119,7 +151,42 @@
   function updateVisibleCount(){const total=state.layers.size,visible=[...state.layers.values()].filter(x=>map.hasLayer(x.leaflet)).length;if($('visibleLayerCount'))$('visibleLayerCount').textContent=`${visible} de ${total} visibles`}
   $('showAllLayers').onclick=()=>{for(const x of state.layers.values()){x.disabledSubgroups.clear();syncSubgroups(x);setLayerVisible(x.def.id,true,false)}renderLayerList();renderMapLegend();fitAll()};
   $('hideAllLayers').onclick=()=>{for(const x of state.layers.values())setLayerVisible(x.def.id,false,false);renderLayerList();renderMapLegend()};
-  function renderMapLegend(){const visible=[...state.layers.values()].filter(x=>map.hasLayer(x.leaflet)&&x.style.legend?.show!==false).sort((a,b)=>(a.def.sort_order||0)-(b.def.sort_order||0));if(!visible.length){$('mapLegend').innerHTML='';$('mapLegend').classList.remove('show');updateVisibleCount();return} $('mapLegend').innerHTML=`<div class="map-legend-head"><b>Leyenda</b><span>${visible.length} capa${visible.length===1?'':'s'} visible${visible.length===1?'':'s'}</span></div>`+visible.map(x=>{const items=SigmunTheme.legendItems(x.style,visibleFeatures(x));return`<div class="map-legend-block"><strong>${esc(x.style.legend?.title||x.def.name)}</strong>${x.style.renderer==='kml'?`<small>${esc(x.style.kmlLegendField||SigmunTheme.inferKmlLegendField(x.geojson.features||[])||'Estilo original KML/KMZ')}</small>`:x.style.field?`<small>${esc(x.style.field)}</small>`:''}<div>${items.slice(0,80).map(i=>`<span class="map-legend-item"><i style="background:${i.color};opacity:${SigmunTheme.clamp01(i.opacity??1)*x.opacity}"></i>${esc(i.label)}${i.count?` <em>${i.count.toLocaleString('es-MX')}</em>`:''}</span>`).join('')}</div></div>`}).join('');$('mapLegend').classList.add('show');updateVisibleCount()}
+  function renderMapLegend(){
+    const visible=[...state.layers.values()].filter(x=>map.hasLayer(x.leaflet)&&x.style.legend?.show!==false).sort((a,b)=>(a.def.sort_order||0)-(b.def.sort_order||0));
+    if(!visible.length){$('mapLegend').innerHTML='';$('mapLegend').classList.remove('show');updateVisibleCount();return}
+    const blocks=visible.map(x=>{
+      const items=simplifiedLegendItems(x),field=meaningfulLegendField(x);
+      if(!items.length)return'';
+      if(items.length===1){const item=items[0];return`<div class="map-legend-compact">${legendSymbolHtml(x,item)}<span><strong>${esc(x.def.name)}</strong>${field?`<small>${esc(field)}</small>`:''}</span></div>`}
+      return`<div class="map-legend-block"><strong>${esc(x.style.legend?.title||x.def.name)}</strong>${field?`<small>Clasificación · ${esc(field)}</small>`:''}<div>${items.slice(0,28).map(i=>`<span class="map-legend-item">${legendSymbolHtml(x,i)}${esc(i.label)}${i.count?` <em>${i.count.toLocaleString('es-MX')}</em>`:''}</span>`).join('')}${items.length>28?`<span class="map-legend-more">+${items.length-28} clases visibles</span>`:''}</div></div>`;
+    }).join('');
+    $('mapLegend').innerHTML=`<div class="map-legend-head"><b>Leyenda</b><span>${visible.length} capa${visible.length===1?'':'s'} visible${visible.length===1?'':'s'}</span></div>${blocks}`;
+    $('mapLegend').classList.add('show');updateVisibleCount();
+  }
+
+  const PRINT_PAPERS={letter:{label:'Carta',w:216,h:279},a4:{label:'A4',w:210,h:297},oficio:{label:'Oficio',w:216,h:340},legal:{label:'Legal',w:216,h:356},tabloid:{label:'Tabloide',w:279,h:432},a3:{label:'A3',w:297,h:420}};
+  let printSnapshot=null;
+  function currentBaseName(){return({osm:'Calles · OpenStreetMap',satellite:'Satélite · Esri',terrain:'Relieve · OpenTopoMap'})[state.currentBase]||state.currentBase}
+  function niceScaleRatio(raw){if(!Number.isFinite(raw)||raw<=0)return null;const e=Math.floor(Math.log10(raw)),n=raw/10**e,base=n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10;return Math.round(base*10**e)}
+  function currentScaleRatio(){const c=map.getCenter(),z=map.getZoom(),mpp=156543.03392*Math.cos(c.lat*Math.PI/180)/(2**z);return niceScaleRatio(mpp*3779.527559)}
+  function defaultPlanCode(){const slug=String(state.project?.slug||'mapa').split('-').filter(Boolean).map(x=>x[0]).join('').toUpperCase().slice(0,6)||'MAP';return`SIG-${slug}-${String(new Date().getFullYear()).slice(-2)}`}
+  function printLegendHtml(){
+    const visible=[...state.layers.values()].filter(x=>map.hasLayer(x.leaflet)&&x.style.legend?.show!==false).sort((a,b)=>(a.def.sort_order||0)-(b.def.sort_order||0));
+    const groups=[];
+    for(const x of visible){const items=simplifiedLegendItems(x);if(!items.length)continue;if(items.length===1){groups.push(`<div class="print-symbol-single">${legendSymbolHtml(x,items[0],'print-symbol')}<span>${esc(x.def.name)}</span></div>`);continue}const field=meaningfulLegendField(x);groups.push(`<div class="print-symbol-group"><b>${esc(x.def.name)}${field?` · ${esc(field)}`:''}</b><div>${items.slice(0,16).map(i=>`<span>${legendSymbolHtml(x,i,'print-symbol')}${esc(i.label)}</span>`).join('')}${items.length>16?`<em>+${items.length-16} clases</em>`:''}</div></div>`)}
+    return groups.slice(0,26).join('')+(groups.length>26?`<div class="print-symbol-single"><span>+${groups.length-26} capas visibles</span></div>`:'');
+  }
+  function preparePrintCartouche(){
+    const title=$('printTitleInput')?.value?.trim()||state.project?.name||'Visor geográfico',code=$('printCodeInput')?.value?.trim()||defaultPlanCode(),ratio=currentScaleRatio(),visible=[...state.layers.values()].filter(x=>map.hasLayer(x.leaflet));
+    $('printTopicTitle').textContent=(state.project?.sigmun_topics?.name||'Información territorial').toUpperCase();$('printProjectTitle').textContent=title;$('printProjectDescription').textContent=state.project?.description||'Consulta cartográfica del Sistema de Información Geográfica y Estadística de Delicias.';$('printPlanCode').textContent=code;$('printLegendGrid').innerHTML=printLegendHtml();$('printBaseMap').textContent=currentBaseName();$('printLayerSummary').textContent=`${visible.length} de ${state.layers.size} capas`;$('printDate').textContent=new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'long',year:'numeric'}).format(new Date());$('printScaleText').textContent=ratio?`Escala aprox. 1:${ratio.toLocaleString('es-MX')}`:'Escala gráfica';
+  }
+  function applyPrintPaper(){const key=$('printPaper')?.value||'letter',p=PRINT_PAPERS[key]||PRINT_PAPERS.letter,margin=6,style=document.getElementById('sigmunDynamicPrintStyle')||document.head.appendChild(Object.assign(document.createElement('style'),{id:'sigmunDynamicPrintStyle'}));style.textContent=`@page{size:${p.w}mm ${p.h}mm;margin:${margin}mm}@media print{:root{--print-page-width:${p.w-margin*2}mm;--print-page-height:${p.h-margin*2}mm}}`;return p}
+  function openPrintDialog(){if(!state.project)return toast('Selecciona un proyecto antes de imprimir.',true);$('printTitleInput').value=state.project.name||'';$('printCodeInput').value=defaultPlanCode();const d=$('printDialog');if(typeof d.showModal==='function')d.showModal();else d.setAttribute('open','')}
+  function startPrint(){
+    applyPrintPaper();preparePrintCartouche();printSnapshot={center:map.getCenter(),zoom:map.getZoom(),bounds:map.getBounds()};const d=$('printDialog');if(d?.open)d.close();document.body.classList.add('print-ready');setTimeout(()=>window.print(),80);
+  }
+  window.addEventListener('beforeprint',()=>{preparePrintCartouche();document.body.classList.add('print-ready');try{map.invalidateSize({animate:false,pan:false});if(printSnapshot?.bounds?.isValid())map.fitBounds(printSnapshot.bounds,{animate:false,padding:[0,0]})}catch(e){console.warn('Ajuste de impresión',e)}});
+  window.addEventListener('afterprint',()=>{document.body.classList.remove('print-ready');try{map.invalidateSize({animate:false,pan:false});if(printSnapshot)map.setView(printSnapshot.center,printSnapshot.zoom,{animate:false})}catch(e){}printSnapshot=null});
   function selectLayer(id,rerender=true){state.selected=id;const x=state.layers.get(id),features=visibleFeatures(x);state.rows=features.map((f,i)=>({__fid:featureId(f,i),__geometry:f.geometry?.type,...Object.fromEntries(Object.entries(f.properties||{}).filter(([k])=>!k.startsWith('_kml_')))}));state.filtered=[...state.rows];if(rerender)renderLayerList();refreshData()}
   function updateDataSelect(){$('dataLayer').innerHTML=[...state.layers.values()].sort((a,b)=>(a.def.sort_order||0)-(b.def.sort_order||0)).map(x=>`<option value="${x.def.id}" ${x.def.id===state.selected?'selected':''}>${esc(x.def.name)}</option>`).join('');$('dataLayer').onchange=e=>selectLayer(e.target.value)}
   function refreshData(){renderTable();setupFilters();renderAnalysis()}
@@ -150,7 +217,7 @@
   document.querySelectorAll('.base-btn').forEach(b=>b.onclick=()=>{map.removeLayer(bases[state.currentBase]);state.currentBase=b.dataset.base;bases[state.currentBase].addTo(map);document.querySelectorAll('.base-btn').forEach(x=>x.classList.toggle('active',x===b))});
   $('panelBtn').onclick=()=>$('viewerPanel').classList.toggle('open');map.on('mousemove',e=>$('coords').textContent=`Lat: ${e.latlng.lat.toFixed(6)} | Lon: ${e.latlng.lng.toFixed(6)}`);
   $('homeBtn').onclick=()=>state.project?map.setView([state.project.center_lat||cfg.defaultCenter[0],state.project.center_lon||cfg.defaultCenter[1]],state.project.default_zoom||cfg.defaultZoom):map.setView(cfg.defaultCenter,cfg.defaultZoom);
-  $('fullBtn').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();$('printBtn').onclick=()=>window.print();$('locateBtn').onclick=()=>map.locate({setView:true,maxZoom:17});map.on('locationerror',()=>toast('No fue posible obtener tu ubicación.',true));
+  $('fullBtn').onclick=()=>document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();$('printBtn').onclick=openPrintDialog;$('confirmPrintBtn').onclick=startPrint;$('locateBtn').onclick=()=>map.locate({setView:true,maxZoom:17});map.on('locationerror',()=>toast('No fue posible obtener tu ubicación.',true));
   $('drawBtn').onclick=()=>{state.drawVisible=!state.drawVisible;if(state.drawVisible)map.addControl(state.drawControl);else map.removeControl(state.drawControl);$('drawBtn').classList.toggle('active',state.drawVisible)};$('measureBtn').onclick=()=>{state.measureMode=true;new L.Draw.Polyline(map,{shapeOptions:{color:'#0f4fa8',weight:3}}).enable();toast('Traza una línea para medir la distancia.')};
   $('exportBtn').onclick=()=>{const x=state.layers.get(state.selected);if(!x)return;const ids=new Set(state.filtered.map(r=>String(r.__fid))),gj={type:'FeatureCollection',features:visibleFeatures(x).filter((f,i)=>ids.has(featureId(f,i)))};SigmunData.download(`${(x.def.name||'capa').replace(/\s+/g,'_')}.geojson`,JSON.stringify(gj,null,2),'application/geo+json')};
   init();

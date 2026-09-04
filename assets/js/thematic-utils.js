@@ -119,9 +119,9 @@
   function fieldList(features){const set=new Set();(features||[]).slice(0,3000).forEach(f=>Object.keys(f?.properties||{}).forEach(k=>set.add(k)));return[...set].sort((a,b)=>a.localeCompare(b,'es'))}
   function publicFieldList(features){return fieldList(features).filter(k=>!k.startsWith('_kml_'))}
   function inferKmlLegendField(features){
-    const fs=(features||[]).slice(0,5000),priority=['ZS','USO','Uso','uso','TIPO','Tipo','tipo','CATEGORIA','Categoría','Categoria','CLASE','Clase','SUBTIPO','Subtipo','AMBITO','ÁMBITO'],fields=publicFieldList(fs);
+    const fs=(features||[]).slice(0,5000),priority=['ZS','USO','Uso','uso','TIPO','Tipo','tipo','CATEGORIA','Categoría','Categoria','CLASE','Clase','SUBTIPO','Subtipo','AMBITO','ÁMBITO'],fields=publicFieldList(fs),technical=/^(id|fid|gid|objectid|oid|way|osm_id|shape|length|lengthm|area|area_ha|clave|cvegeo|cve_|codigo|code|index|no_|num_|number)/i;
     for(const p of priority){const vals=fields.includes(p)?uniqueValues(fs,p,61):[];if(vals.length>1&&vals.length<=60)return p}
-    let best='',score=-1;for(const f of fields){const vals=uniqueValues(fs,f,61);if(vals.length<2||vals.length>60)continue;const present=fs.filter(x=>x.properties?.[f]!==null&&x.properties?.[f]!==undefined&&x.properties?.[f]!=='').length;if(!present)continue;const s=(present/fs.length)*4+Math.min(vals.length,20)/20;if(s>score){score=s;best=f}}
+    let best='',score=-1;for(const f of fields){if(technical.test(String(f).trim()))continue;const vals=uniqueValues(fs,f,61);if(vals.length<2||vals.length>40)continue;const present=fs.filter(x=>x.properties?.[f]!==null&&x.properties?.[f]!==undefined&&x.properties?.[f]!=='').length;if(!present)continue;const ratio=present/fs.length;if(ratio<.55)continue;const s=ratio*4+Math.min(vals.length,16)/20;if(s>score){score=s;best=f}}
     return best;
   }
   function kmlGroupingMode(features,styleInput={}){
