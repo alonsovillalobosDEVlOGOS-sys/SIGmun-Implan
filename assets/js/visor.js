@@ -5,12 +5,12 @@
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   let toastTimer;function toast(m,e=false){const x=$('toast');x.textContent=m;x.classList.toggle('error',e);x.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>x.classList.remove('show'),2800)}
   const map=L.map('map',{center:cfg.defaultCenter,zoom:cfg.defaultZoom,zoomControl:false,preferCanvas:true});
-  const satelliteImagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'© Esri'});
-  const satelliteLabels=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'© Esri'});
+  const satelliteImagery=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'© Esri',crossOrigin:true});
+  const satelliteLabels=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'© Esri',crossOrigin:true});
   const bases={
-    osm:L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}),
+    osm:L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap',crossOrigin:true}),
     satellite:L.layerGroup([satelliteImagery,satelliteLabels]),
-    terrain:L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'© OpenTopoMap'})
+    terrain:L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'© OpenTopoMap',crossOrigin:true})
   };bases.osm.addTo(map);
   const drawings=L.featureGroup().addTo(map);state.drawControl=new L.Control.Draw({edit:{featureGroup:drawings},draw:{circle:false,circlemarker:false}});
   map.on(L.Draw.Event.CREATED,e=>{drawings.addLayer(e.layer);if(state.measureMode&&e.layer instanceof L.Polyline){const pts=e.layer.getLatLngs().flat(Infinity);let meters=0;for(let i=1;i<pts.length;i++)meters+=pts[i-1].distanceTo(pts[i]);toast(`Distancia: ${meters>=1000?(meters/1000).toFixed(2)+' km':Math.round(meters)+' m'}`);state.measureMode=false}});
@@ -52,7 +52,7 @@
       const url=ov.dataUrl||ov.image_href||ov.imageUrl||'';
       if(!url||![ov.south,ov.west,ov.north,ov.east].every(v=>Number.isFinite(Number(v))))return;
       const baseOpacity=SigmunTheme.clamp01(ov.opacity??1)*SigmunTheme.clamp01(style.kmlOpacity??1);
-      const img=L.imageOverlay(url,[[Number(ov.south),Number(ov.west)],[Number(ov.north),Number(ov.east)]],{pane,opacity:baseOpacity,interactive:true});
+      const img=L.imageOverlay(url,[[Number(ov.south),Number(ov.west)],[Number(ov.north),Number(ov.east)]],{pane,opacity:baseOpacity,interactive:true,crossOrigin:true});
       img.__sigmunRaster=true;img.__sigmunRasterBaseOpacity=baseOpacity;img.__sigmunRasterInfo=ov;
       img.on('click',()=>showRasterProps(ov,def));
       leaflet.addLayer(img);
@@ -78,11 +78,13 @@
   function rendererDetail(x){const s=x.style;if(s.renderer==='kml'){const f=s.kmlLegendField||SigmunTheme.inferKmlLegendField(x.geojson.features||[]);return f?`${f} · ${x.subgroups.length} clases`:`${x.subgroups.length} estilos`}if(s.renderer==='categorized')return s.field?`${s.field} · ${x.subgroups.length||s.categories?.length||0} clases`:'';if(s.renderer==='graduated')return s.field?`${s.field} · ${s.classes?.length||0} rangos`:'';return''}
   function visibleFeatures(x){if(!x)return[];if(!x.disabledSubgroups.size)return x.geojson.features||[];return(x.geojson.features||[]).filter((f,i)=>{const key=x.fidToGroup?.get(featureId(f,i));return!key||!x.disabledSubgroups.has(key)})}
   function legendColorKey(item){return `${String(item?.color||'#64748b').toLowerCase()}|${Math.round(SigmunTheme.clamp01(item?.opacity??1)*100)}`}
+  function isTechnicalLegendField(field=''){return /^(id|fid|gid|oid|objectid|way|shape|shape_leng|shape_area|length|lengthm|area|area_ha|dist|distance|draworder|zindex|sort|buf_|buvf_|num_|no_|index)/i.test(String(field).trim())||/_dist$/i.test(String(field).trim())}
+  function isTechnicalLegendLabel(label=''){const s=String(label??'').trim();return !s||/^[-+]?\d+(?:[.,]\d+)?$/.test(s)||/^way\//i.test(s)||/^fid\b/i.test(s)||/^(gid|id|oid|objectid)$/i.test(s)}
   function meaningfulLegendField(x){
-    const s=x.style||{};
-    if(s.renderer==='categorized'||s.renderer==='graduated')return s.field||'';
-    if(s.renderer==='kml')return s.kmlLegendField||SigmunTheme.inferKmlLegendField(x.geojson.features||[])||'';
-    return'';
+    const s=x.style||{};let field='';
+    if(s.renderer==='categorized'||s.renderer==='graduated')field=s.field||'';
+    else if(s.renderer==='kml')field=s.kmlLegendField||SigmunTheme.inferKmlLegendField(x.geojson.features||[])||'';
+    return field&&!isTechnicalLegendField(field)?field:'';
   }
   function simplifiedLegendItems(x){
     if(!x)return[];
@@ -96,13 +98,16 @@
         if(!byLabel.has(key))byLabel.set(key,{...item,label,count:0});
         const hit=byLabel.get(key);hit.count+=(Number(item.count)||0);if(!hit.color&&item.color)hit.color=item.color;
       }
-      return[...byLabel.values()].sort((a,b)=>String(a.label).localeCompare(String(b.label),'es',{numeric:true}));
+      const grouped=[...byLabel.values()].sort((a,b)=>String(a.label).localeCompare(String(b.label),'es',{numeric:true}));
+      const colors=new Set(grouped.map(legendColorKey));
+      if(colors.size<=1)return[{...grouped[0],label:x.def.name,count:features.length+(x.overlayCount||0)}];
+      return grouped;
     }
     const byColor=new Map();
     for(const item of raw){const key=legendColorKey(item);if(!byColor.has(key))byColor.set(key,{...item,count:0});byColor.get(key).count+=(Number(item.count)||0)}
     const merged=[...byColor.values()];
     if(merged.length===1)return[{...merged[0],label:x.def.name,count:features.length+(x.overlayCount||0)}];
-    return merged.slice(0,8).map((item,i)=>({...item,label:(item.label&&!/^\d+$/.test(String(item.label))&&!/^way\//i.test(String(item.label))&&!/^fid\b/i.test(String(item.label)))?item.label:`${x.def.name} · símbolo ${i+1}`}));
+    return merged.slice(0,8).map((item,i)=>({...item,label:(!isTechnicalLegendLabel(item.label))?String(item.label):`${x.def.name} · símbolo ${i+1}`}));
   }
   function legendGeometryKind(x){const t=x?.def?.geometry_type||'';if(t==='RasterOverlay')return'raster';if(/Point/i.test(t))return'point';if(/Line/i.test(t))return'line';return'polygon'}
   function legendSymbolHtml(x,item,cls='legend-symbol'){
@@ -170,23 +175,81 @@
   function niceScaleRatio(raw){if(!Number.isFinite(raw)||raw<=0)return null;const e=Math.floor(Math.log10(raw)),n=raw/10**e,base=n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10;return Math.round(base*10**e)}
   function currentScaleRatio(){const c=map.getCenter(),z=map.getZoom(),mpp=156543.03392*Math.cos(c.lat*Math.PI/180)/(2**z);return niceScaleRatio(mpp*3779.527559)}
   function defaultPlanCode(){const slug=String(state.project?.slug||'mapa').split('-').filter(Boolean).map(x=>x[0]).join('').toUpperCase().slice(0,6)||'MAP';return`SIG-${slug}-${String(new Date().getFullYear()).slice(-2)}`}
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  function currentPrintTitle(){return $('printTitleInput')?.value?.trim()||state.project?.name||'Visor geográfico'}
+  function visibleProjectLayers(){return[...state.layers.values()].filter(x=>map.hasLayer(x.leaflet)&&x.style.legend?.show!==false).sort((a,b)=>(a.def.sort_order||0)-(b.def.sort_order||0))}
+  function printableLegendEntries(x){
+    const items=simplifiedLegendItems(x);
+    if(!items.length)return[];
+    const colors=new Set(items.map(legendColorKey));
+    if(items.length===1||colors.size<=1)return[{...items[0],label:x.def.name}];
+    return items.slice(0,12);
+  }
   function printLegendHtml(){
-    const visible=[...state.layers.values()].filter(x=>map.hasLayer(x.leaflet)&&x.style.legend?.show!==false).sort((a,b)=>(a.def.sort_order||0)-(b.def.sort_order||0));
-    const groups=[];
-    for(const x of visible){const items=simplifiedLegendItems(x);if(!items.length)continue;if(items.length===1){groups.push(`<div class="print-symbol-single">${legendSymbolHtml(x,items[0],'print-symbol')}<span>${esc(x.def.name)}</span></div>`);continue}const field=meaningfulLegendField(x);groups.push(`<div class="print-symbol-group"><b>${esc(x.def.name)}${field?` · ${esc(field)}`:''}</b><div>${items.slice(0,16).map(i=>`<span>${legendSymbolHtml(x,i,'print-symbol')}${esc(i.label)}</span>`).join('')}${items.length>16?`<em>+${items.length-16} clases</em>`:''}</div></div>`)}
-    return groups.slice(0,26).join('')+(groups.length>26?`<div class="print-symbol-single"><span>+${groups.length-26} capas visibles</span></div>`:'');
+    const visible=visibleProjectLayers(),groups=[];
+    for(const x of visible){
+      const items=printableLegendEntries(x);if(!items.length)continue;
+      if(items.length===1){groups.push(`<div class="print-symbol-single">${legendSymbolHtml(x,items[0],'print-symbol')}<span>${esc(items[0].label||x.def.name)}</span></div>`);continue}
+      const field=meaningfulLegendField(x);groups.push(`<div class="print-symbol-group"><b>${esc(x.def.name)}${field?` · ${esc(field)}`:''}</b><div>${items.map(i=>`<span>${legendSymbolHtml(x,i,'print-symbol')}${esc(i.label)}</span>`).join('')}${simplifiedLegendItems(x).length>items.length?`<em>+${simplifiedLegendItems(x).length-items.length} clases</em>`:''}</div></div>`)
+    }
+    return groups.slice(0,18).join('')+(groups.length>18?`<div class="print-symbol-single"><span>+${groups.length-18} capas visibles</span></div>`:'');
   }
   function preparePrintCartouche(){
-    const title=$('printTitleInput')?.value?.trim()||state.project?.name||'Visor geográfico',code=$('printCodeInput')?.value?.trim()||defaultPlanCode(),ratio=currentScaleRatio(),visible=[...state.layers.values()].filter(x=>map.hasLayer(x.leaflet));
-    $('printTopicTitle').textContent=(state.project?.sigmun_topics?.name||'Información territorial').toUpperCase();$('printProjectTitle').textContent=title;$('printProjectDescription').textContent=state.project?.description||'Consulta cartográfica del Sistema de Información Geográfica y Estadística de Delicias.';$('printPlanCode').textContent=code;$('printLegendGrid').innerHTML=printLegendHtml();$('printBaseMap').textContent=currentBaseName();$('printLayerSummary').textContent=`${visible.length} de ${state.layers.size} capas`;$('printDate').textContent=new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'long',year:'numeric'}).format(new Date());$('printScaleText').textContent=ratio?`Escala aprox. 1:${ratio.toLocaleString('es-MX')}`:'Escala gráfica';
+    const title=currentPrintTitle(),code=$('printCodeInput')?.value?.trim()||defaultPlanCode(),ratio=currentScaleRatio(),visible=visibleProjectLayers();
+    $('printTopicTitle').textContent=(state.project?.sigmun_topics?.name||'Información territorial').toUpperCase();
+    $('printProjectTitle').textContent=title;
+    $('printProjectDescription').textContent=state.project?.description||'Consulta cartográfica del Sistema de Información Geográfica y Estadística de Delicias.';
+    $('printPlanCode').textContent=code;
+    $('printLegendGrid').innerHTML=printLegendHtml();
+    $('printBaseMap').textContent=currentBaseName();
+    $('printLayerSummary').textContent=`${visible.length} de ${state.layers.size} capas`;
+    $('printDate').textContent=new Intl.DateTimeFormat('es-MX',{day:'2-digit',month:'long',year:'numeric'}).format(new Date());
+    $('printScaleText').textContent=ratio?`Escala aprox. 1:${ratio.toLocaleString('es-MX')}`:'Escala gráfica';
+    $('printMapCaptionTitle').textContent=title;
+    $('printMapCaptionSubtitle').textContent=(state.project?.sigmun_topics?.name||'Información territorial')+' · vista cartográfica actual';
   }
   function applyPrintPaper(){const key=$('printPaper')?.value||'letter',p=PRINT_PAPERS[key]||PRINT_PAPERS.letter,margin=6,style=document.getElementById('sigmunDynamicPrintStyle')||document.head.appendChild(Object.assign(document.createElement('style'),{id:'sigmunDynamicPrintStyle'}));style.textContent=`@page{size:${p.w}mm ${p.h}mm;margin:${margin}mm}@media print{:root{--print-page-width:${p.w-margin*2}mm;--print-page-height:${p.h-margin*2}mm}}`;return p}
   function openPrintDialog(){if(!state.project)return toast('Selecciona un proyecto antes de imprimir.',true);$('printTitleInput').value=state.project.name||'';$('printCodeInput').value=defaultPlanCode();const d=$('printDialog');if(typeof d.showModal==='function')d.showModal();else d.setAttribute('open','')}
-  function startPrint(){
-    applyPrintPaper();preparePrintCartouche();printSnapshot={center:map.getCenter(),zoom:map.getZoom(),bounds:map.getBounds()};const d=$('printDialog');if(d?.open)d.close();document.body.classList.add('print-ready');setTimeout(()=>window.print(),80);
+  function elementOpacity(el,mapEl){let node=el,alpha=1;while(node&&node!==mapEl){const o=parseFloat(getComputedStyle(node).opacity||'1');if(Number.isFinite(o))alpha*=o;node=node.parentElement}return Math.max(0,Math.min(1,alpha||1))}
+  async function drawSvgNode(ctx,svg,dx,dy,w,h,alpha){const xml=new XMLSerializer().serializeToString(svg),img=new Image();await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=reject;img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(xml)});ctx.save();ctx.globalAlpha=alpha;ctx.drawImage(img,dx,dy,w,h);ctx.restore()}
+  async function captureMapImage(){
+    const mapEl=$('map'),rect=mapEl.getBoundingClientRect(),scale=Math.max(2,Math.min(3,window.devicePixelRatio||2));
+    const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(rect.width*scale));canvas.height=Math.max(1,Math.round(rect.height*scale));
+    const ctx=canvas.getContext('2d');ctx.scale(scale,scale);ctx.fillStyle='#ffffff';ctx.fillRect(0,0,rect.width,rect.height);
+    const drawables=[...mapEl.querySelectorAll('.leaflet-pane canvas, .leaflet-pane img, .leaflet-pane svg')].filter(el=>{const r=el.getBoundingClientRect(),cs=getComputedStyle(el);return r.width>0&&r.height>0&&cs.display!=='none'&&cs.visibility!=='hidden'&&parseFloat(cs.opacity||'1')>0});
+    drawables.sort((a,b)=>{const az=parseInt(getComputedStyle(a.closest('.leaflet-pane')||a).zIndex||'0',10)||0,bz=parseInt(getComputedStyle(b.closest('.leaflet-pane')||b).zIndex||'0',10)||0;return az-bz});
+    for(const el of drawables){
+      const r=el.getBoundingClientRect(),dx=r.left-rect.left,dy=r.top-rect.top,alpha=elementOpacity(el,mapEl); if(r.width<=0||r.height<=0||alpha<=0)continue;
+      try{
+        if(el.tagName==='IMG'){
+          if(el.complete&&el.naturalWidth){ctx.save();ctx.globalAlpha=alpha;ctx.drawImage(el,dx,dy,r.width,r.height);ctx.restore()}
+        }else if(el.tagName==='CANVAS'){
+          ctx.save();ctx.globalAlpha=alpha;ctx.drawImage(el,dx,dy,r.width,r.height);ctx.restore()
+        }else if(el.tagName==='SVG')await drawSvgNode(ctx,el,dx,dy,r.width,r.height,alpha);
+      }catch(err){console.warn('Elemento no exportado en impresión',err,el)}
+    }
+    return canvas.toDataURL('image/png');
   }
-  window.addEventListener('beforeprint',()=>{preparePrintCartouche();document.body.classList.add('print-ready');try{map.invalidateSize({animate:false,pan:false});if(printSnapshot?.bounds?.isValid())map.fitBounds(printSnapshot.bounds,{animate:false,padding:[0,0]})}catch(e){console.warn('Ajuste de impresión',e)}});
-  window.addEventListener('afterprint',()=>{document.body.classList.remove('print-ready');try{map.invalidateSize({animate:false,pan:false});if(printSnapshot)map.setView(printSnapshot.center,printSnapshot.zoom,{animate:false})}catch(e){}printSnapshot=null});
+  async function preparePrintImage(){
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    await sleep(220);
+    const url=await captureMapImage();
+    const img=$('printMapImage');
+    await new Promise((resolve,reject)=>{img.onload=()=>resolve();img.onerror=reject;img.src=url});
+    return url;
+  }
+  async function startPrint(){
+    try{
+      applyPrintPaper();preparePrintCartouche();printSnapshot={center:map.getCenter(),zoom:map.getZoom(),bounds:map.getBounds()};
+      const d=$('printDialog');if(d?.open)d.close();
+      document.body.classList.add('print-ready');
+      await preparePrintImage();
+      await sleep(120);
+      window.print();
+    }catch(e){console.error(e);document.body.classList.remove('print-ready');toast('No fue posible generar la captura del mapa para imprimir.',true)}
+  }
+  window.addEventListener('beforeprint',()=>{preparePrintCartouche();document.body.classList.add('print-ready')});
+  window.addEventListener('afterprint',()=>{document.body.classList.remove('print-ready');if(printSnapshot){try{map.setView(printSnapshot.center,printSnapshot.zoom,{animate:false})}catch(e){}}printSnapshot=null});
   function selectLayer(id,rerender=true){state.selected=id;const x=state.layers.get(id),features=visibleFeatures(x);state.rows=features.map((f,i)=>({__fid:featureId(f,i),__geometry:f.geometry?.type,...Object.fromEntries(Object.entries(f.properties||{}).filter(([k])=>!k.startsWith('_kml_')))}));state.filtered=[...state.rows];if(rerender)renderLayerList();refreshData()}
   function updateDataSelect(){$('dataLayer').innerHTML=[...state.layers.values()].sort((a,b)=>(a.def.sort_order||0)-(b.def.sort_order||0)).map(x=>`<option value="${x.def.id}" ${x.def.id===state.selected?'selected':''}>${esc(x.def.name)}</option>`).join('');$('dataLayer').onchange=e=>selectLayer(e.target.value)}
   function refreshData(){renderTable();setupFilters();renderAnalysis()}

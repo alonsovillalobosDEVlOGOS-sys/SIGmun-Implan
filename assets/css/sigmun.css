@@ -240,3 +240,54 @@
   .print-meta-row{grid-column:1 / -1;grid-row:2;border-top:1px solid #374151;display:grid;grid-template-columns:1.1fr 1.05fr 1fr .8fr .8fr 1.7fr;min-height:0}.print-meta-row>div{padding:1.4mm 1.6mm;border-right:1px solid #9ca3af;min-width:0;overflow:hidden}.print-meta-row>div:last-child{border-right:0}.print-meta-row span{display:block;font-size:4.3pt;text-transform:uppercase;letter-spacing:.055em;color:#667085}.print-meta-row b{display:block;margin-top:.45mm;font-size:5.1pt;line-height:1.15;color:#344054;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.print-author b{white-space:normal}.print-scale-graphic{display:grid;grid-template-columns:repeat(4,1fr);width:24mm;height:1.8mm;margin-top:1.1mm;border:1px solid #344054}.print-scale-graphic i:nth-child(odd){background:#111827}.print-scale-graphic i:nth-child(even){background:#fff}
   .leaflet-control-attribution{font-size:5pt!important;background:rgba(255,255,255,.78)!important;padding:0 1mm!important}.leaflet-control-zoom{display:none!important}
 }
+
+/* SIGmun 2026-09-04f · captura cartográfica de impresión y cuadro institucional refinado */
+.print-sheet{display:none}
+.print-map-frame{position:relative;border:1px solid #374151;background:#fff;overflow:hidden}
+.print-map-frame img{display:block;width:100%;height:100%;object-fit:contain;background:#fff}
+.print-map-caption{position:absolute;top:4mm;left:4mm;max-width:66%;padding:2.2mm 2.8mm;border:1px solid rgba(15,79,168,.18);border-radius:3mm;background:rgba(255,255,255,.92);box-shadow:0 5px 18px rgba(4,23,48,.12)}
+.print-map-caption b{display:block;font:800 10pt/1.05 Poppins,Arial,sans-serif;color:#102a43}
+.print-map-caption span{display:block;margin-top:.8mm;font-size:6pt;color:#64748b}
+.print-map-watermark{position:absolute;right:4mm;bottom:3mm;font-size:6pt;font-weight:700;color:rgba(15,79,168,.72);letter-spacing:.05em;background:rgba(255,255,255,.84);padding:1mm 1.6mm;border-radius:999px}
+
+@media print{
+  .brandbar,.viewer-panel,.map-tools,.coords,.property-drawer,.map-info,.map-legend-panel,.toast,.print-dialog{display:none!important}
+  .viewer-layout{display:block!important;width:var(--print-page-width,204mm)!important;height:var(--print-page-height,267mm)!important;overflow:hidden!important;background:#fff!important}
+  .map-wrap{display:block!important;width:100%!important;height:100%!important;overflow:hidden!important;background:#fff!important}
+  #map{display:none!important}
+  .print-sheet{display:grid!important;grid-template-rows:minmax(0,1fr) 74mm!important;gap:3mm!important;width:100%!important;height:100%!important;overflow:hidden!important}
+  .print-map-frame{display:block!important;min-height:0!important;height:100%!important;border:1px solid #374151!important;background:#fff!important;overflow:hidden!important}
+  .print-map-frame img{width:100%!important;height:100%!important;object-fit:contain!important;object-position:center center!important;background:#fff!important}
+  .print-cartouche{display:grid!important;grid-template-columns:48mm minmax(0,1fr) 36mm!important;grid-template-rows:minmax(0,1fr) 15mm!important;height:74mm!important;width:100%!important;border:1px solid #374151!important;background:#fff!important;color:#111827!important;overflow:hidden!important}
+  .print-brand-cell{padding:2.7mm 2.4mm!important;display:flex!important;flex-direction:column!important;justify-content:space-between!important;gap:1.5mm!important;border-right:1px solid #374151!important}
+  .print-brand-logos{display:grid!important;gap:2mm!important;align-items:start!important}
+  .print-brand-logos img:first-child{width:42mm!important;max-width:100%!important;max-height:15mm!important;object-fit:contain!important;object-position:left top!important}
+  .print-brand-logos img:last-child{width:28mm!important;max-width:100%!important;max-height:14mm!important;object-fit:contain!important;object-position:left top!important}
+  .print-brand-cell b{display:block!important;font-size:8.2pt!important;color:#0f2f5f!important;line-height:1.1!important}
+  .print-brand-cell span{display:block!important;font-size:5.8pt!important;line-height:1.3!important;color:#667085!important}
+  .print-title-cell{padding:2.5mm 3mm 2mm!important;overflow:hidden!important}
+  .print-kicker{font-size:5.6pt!important;letter-spacing:.08em!important;color:#0f4fa8!important;font-weight:800!important}
+  .print-title-cell h1{margin:.7mm 0 0!important;font:800 11pt/1.04 Poppins,Arial,sans-serif!important;text-transform:uppercase!important;color:#111827!important}
+  .print-title-cell p{margin:.9mm 0 1.6mm!important;font-size:5.6pt!important;line-height:1.28!important;color:#667085!important;max-height:8mm!important;overflow:hidden!important}
+  .print-symbol-title{padding-top:1.2mm!important;border-top:1px solid #9ca3af!important;font-size:5.1pt!important;font-weight:800!important;letter-spacing:.045em!important;color:#475467!important}
+  .print-symbol-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:1.1mm 1.6mm!important;margin-top:1.2mm!important;align-content:start!important;overflow:hidden!important}
+  .print-symbol-single{display:flex!important;align-items:center!important;gap:1mm!important;min-width:0!important;font-size:5.4pt!important;line-height:1.08!important;color:#475467!important}
+  .print-symbol-single span{overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+  .print-symbol-group{grid-column:span 1!important;min-width:0!important;border:1px solid #e4e7ec!important;border-radius:1.1mm!important;padding:1mm 1.2mm!important;background:#fbfcfd!important}
+  .print-symbol-group>b{display:block!important;margin-bottom:.6mm!important;font-size:5pt!important;color:#344054!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+  .print-symbol-group>div{display:grid!important;grid-template-columns:1fr 1fr!important;gap:.55mm .9mm!important}
+  .print-symbol-group span{display:flex!important;align-items:center!important;gap:.75mm!important;min-width:0!important;font-size:4.85pt!important;line-height:1.08!important;color:#667085!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+  .print-symbol-group em{grid-column:span 2!important;font-style:normal!important;font-size:4.6pt!important;color:#98a2b3!important}
+  .print-symbol{width:3.6mm!important;height:2.3mm!important}.print-symbol-line{width:4.3mm!important;border-top-width:1mm!important}.print-symbol-point{width:2.4mm!important;height:2.4mm!important}
+  .print-code-cell{padding:2.4mm 2mm!important;display:grid!important;grid-template-rows:auto 1fr auto auto!important;justify-items:center!important;text-align:center!important;border-left:1px solid #374151!important}
+  .print-sheet-type{width:100%!important;border:1px solid #6b7280!important;padding:1.1mm 1mm!important;font:800 8.2pt Poppins,Arial,sans-serif!important;color:#111827!important}
+  .print-north{width:18mm!important;height:18mm!important;margin-top:1.4mm!important}.print-north svg{width:16.5mm!important;height:16.5mm!important}.print-north>b{top:-.6mm!important;font-size:7pt!important}
+  .print-code-cell>span{font-size:4.8pt!important;color:#667085!important;letter-spacing:.07em!important}.print-code-cell>strong{font:800 15.5pt/1 Poppins,Arial,sans-serif!important;color:#111827!important;margin-top:.6mm!important}
+  .print-meta-row{display:grid!important;grid-column:1 / -1!important;border-top:1px solid #374151!important;grid-template-columns:1.05fr 1.05fr 1fr .8fr .8fr 1.55fr!important;min-height:0!important}
+  .print-meta-row>div{padding:1.35mm 1.5mm!important;border-right:1px solid #9ca3af!important;min-width:0!important;overflow:hidden!important}.print-meta-row>div:last-child{border-right:0!important}
+  .print-meta-row span{display:block!important;font-size:4.35pt!important;text-transform:uppercase!important;letter-spacing:.055em!important;color:#667085!important}
+  .print-meta-row b{display:block!important;margin-top:.45mm!important;font-size:5.1pt!important;line-height:1.14!important;color:#344054!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+  .print-author b{white-space:normal!important}
+  .print-scale-graphic{display:grid!important;grid-template-columns:repeat(4,1fr)!important;width:23mm!important;height:1.8mm!important;margin-top:1mm!important;border:1px solid #344054!important}
+  .print-scale-graphic i:nth-child(odd){background:#111827!important}.print-scale-graphic i:nth-child(even){background:#fff!important}
+}
