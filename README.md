@@ -133,34 +133,10 @@ Sube todo el contenido de esta carpeta al hosting. Las páginas requieren conexi
 
 No publiques claves privadas, contraseña de PostgreSQL ni claves de servicio.
 
-## Ajuste Dashboard — septiembre 2026
+## Simbología KML/KMZ y jerarquía — actualización 2026-09-04
 
-`dashboard.html` incorpora una distribución de dos columnas donde la bandeja de campos funciona de manera independiente del flujo principal. Esto elimina espacios verticales provocados por bases con muchos campos y mantiene consecutivos el constructor, la visualización activa y la tabla de datos.
+SIGmun conserva la simbología declarada en KML/KMZ: colores KML `aabbggrr`, alfa/transparencia, color y grosor de línea, relleno/contorno y escala/color de icono cuando existe. Los `StyleMap` se resuelven a su estilo normal y la configuración se guarda en `sigmun_geo_layers.style.kmlStyles`.
 
-Se añadieron filtros inteligentes contextuales para Tiempo/Año, Dimensión y Serie, además de Top 5/10/20 categorías. Las Guías Inteligentes priorizan tendencias de crecimiento, series comparativas por tiempo, tendencias históricas cuando los años están almacenados como columnas, rankings, comparación de categorías y composición.
+El parser registra además la procedencia de cada elemento mediante `_kml_document`, `_kml_document_path`, `_kml_folder`, `_kml_folder_path`, `_kml_subfolder`, `_kml_hierarchy` y `_kml_style`. En el visor, las capas KML pueden desplegar sus subcarpetas/categorías, activar o desactivar cada grupo y ajustar su opacidad de forma independiente sin alterar los datos almacenados.
 
-El lector de CSV/KML ahora intenta UTF-8 y, cuando detecta caracteres de reemplazo, utiliza automáticamente Windows-1252 como alternativa. El dashboard normaliza Unicode, corrige patrones frecuentes de texto previamente importado con codificación dañada y exporta CSV con BOM UTF-8 para mayor compatibilidad con Excel.
-
-
-## Actualización — CSV geográfico WKT / MultiPolygon
-
-El cargador geográfico admite CSV de puntos con `lat` y `lon`, y CSV de polígonos mediante columnas denominadas `wkt`, `geometry`, `geom`, `the_geom`, `polygon` o `multipolygon`. Se reconocen WKT `POINT`, `POLYGON` y `MULTIPOLYGON` en EPSG:4326. `POLYGON` se normaliza a `MultiPolygon` antes de enviarse a PostGIS. También se admite una geometría GeoJSON `MultiPolygon` serializada dentro del campo `multipolygon`. Las columnas restantes se conservan como atributos para filtros, simbología y ventanas de información del visor.
-
-
-## KML/KMZ grandes y geometrías lineales
-
-La versión 2026-09-03 incorpora un importador reforzado para KML/KMZ provenientes de
-ArcGIS, QGIS, Google Earth y otros sistemas que utilicen `MultiGeometry`, descripciones
-HTML o archivos grandes.
-
-Para habilitar almacenamiento de `LineString` y `MultiLineString`, aplica la migración:
-
-`supabase/migrations/20260903_kml_kmz_multiline_support.sql`
-
-Más información en `GUIA_KML_KMZ.md`.
-
-## Importación KML/KMZ por documentos
-
-Al seleccionar un KML o KMZ, `admin.html` analiza automáticamente su estructura y muestra los documentos cartográficos detectados. El administrador puede elegir **Importar como una sola capa** o **Separar automáticamente por documento**. En modo separado se crea una capa SIGmun por documento, con color inicial distinto, orden consecutivo, metadatos de procedencia y sus geometrías/atributos.
-
-`visor.html` agrupa esas capas por colección de origen dentro de **Capas disponibles**. Cada capa dispone de casilla de visibilidad y cada colección permite **Todas / Ninguna**. La leyenda y simbología se actualizan inmediatamente según las capas visibles.
+La capa PMOTDU ya existente en Supabase fue actualizada para usar `renderer: kml`. Las 57,827 entidades que contienen `_kml_style` cuentan con correspondencia en el registro de estilos; `Usos de Suelo` usa `ZS` como campo preferente de leyenda y conserva los colores originales del KMZ.

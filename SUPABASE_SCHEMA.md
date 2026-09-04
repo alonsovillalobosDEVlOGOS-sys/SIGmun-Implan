@@ -113,31 +113,3 @@ Lista, crea, actualiza y elimina cuentas tras validar al administrador.
 ## RLS
 
 Las tablas SIGmun mantienen Row Level Security. El contenido público puede consultarse sin iniciar sesión; las escrituras dependen del rol almacenado en `sigmun_user_profiles`.
-
-
-## Actualización — CSV geográfico WKT / MultiPolygon
-
-El cargador geográfico admite CSV de puntos con `lat` y `lon`, y CSV de polígonos mediante columnas denominadas `wkt`, `geometry`, `geom`, `the_geom`, `polygon` o `multipolygon`. Se reconocen WKT `POINT`, `POLYGON` y `MULTIPOLYGON` en EPSG:4326. `POLYGON` se normaliza a `MultiPolygon` antes de enviarse a PostGIS. También se admite una geometría GeoJSON `MultiPolygon` serializada dentro del campo `multipolygon`. Las columnas restantes se conservan como atributos para filtros, simbología y ventanas de información del visor.
-
-
-## Extensión KML/KMZ y geometrías lineales — 2026-09-03
-
-Se incluye la migración `supabase/migrations/20260903_kml_kmz_multiline_support.sql`.
-
-Añade:
-
-```text
-sigmun_geo_lines
-  id uuid
-  layer_id uuid
-  multiline geometry(MultiLineString,4326)
-  name text
-  attributes jsonb
-```
-
-También incorpora `sigmun_insert_geo_line()` y `sigmun_insert_geo_batch()` para
-importaciones KML/KMZ masivas, y amplía `sigmun_geo_layer_geojson()` para devolver
-puntos, polígonos y líneas en el mismo `FeatureCollection`.
-
-`sigmun_geo_layers.geometry_type` admite ahora:
-`Point`, `MultiPolygon`, `MultiLineString` y `Mixed`.

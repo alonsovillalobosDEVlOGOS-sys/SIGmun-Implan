@@ -116,8 +116,3 @@ Luego selecciona el tipo de gráfica y la operación: suma, promedio, conteo, m�
 - Las configuraciones oficiales del administrador se guardan en Supabase (`style` y `chart_config`).
 - Las exploraciones que realiza un visitante en `dashboard.html` no modifican la base.
 - El botón **Guardar vista** conserva la combinación personal solamente en el navegador de ese usuario.
-
-
-## Actualización — CSV geográfico WKT / MultiPolygon
-
-El cargador geográfico admite CSV de puntos con `lat` y `lon`, y CSV de polígonos mediante columnas denominadas `wkt`, `geometry`, `geom`, `the_geom`, `polygon` o `multipolygon`. Se reconocen WKT `POINT`, `POLYGON` y `MULTIPOLYGON` en EPSG:4326. `POLYGON` se normaliza a `MultiPolygon` antes de enviarse a PostGIS. También se admite una geometría GeoJSON `MultiPolygon` serializada dentro del campo `multipolygon`. Las columnas restantes se conservan como atributos para filtros, simbología y ventanas de información del visor.
