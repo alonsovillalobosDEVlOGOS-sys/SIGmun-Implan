@@ -150,3 +150,7 @@ La versión actual conserva simbología nativa KML/KMZ por entidad, clasifica `U
 El visor incorpora una leyenda cartográfica simplificada: las capas con simbología uniforme muestran una sola entrada por capa, mientras que las capas temáticas muestran una sola entrada por clase/subcapa visible. Las entidades individuales ya no generan renglones repetitivos en la leyenda.
 
 El botón **Imprimir** abre un configurador de hoja con tamaños Carta, A4, Oficio, Legal, Tabloide y A3, siempre en orientación vertical. La salida utiliza una sola página y conserva la extensión, capas, subcapas y opacidades visibles. El cuadro inferior incluye logotipos institucionales, proyecto, descripción, simbología visible, clave del plano, norte, escala aproximada, sistema WGS84 / EPSG:4326, mapa base, fecha y elaboración de Planeación Estratégica del IMPLAN Delicias 2026.
+
+## Capas geográficas densas · actualización 2026-09-07
+
+SIGmun incorpora entrega paginada de GeoJSON para capas grandes mediante `sigmun_geo_layer_geojson_page()`. Esto evita respuestas monolíticas excesivas, especialmente en KML/KMZ de miles de líneas. Las capas no visibles se cargan de forma diferida en el visor y el usuario recibe progreso de carga. El administrador también informa si un KML/KMZ contiene exclusivamente líneas y no polígonos.

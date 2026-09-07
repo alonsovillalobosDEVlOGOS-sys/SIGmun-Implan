@@ -15,7 +15,22 @@
   async function projectBySlug(slug){ const {data,error}=await client.from('sigmun_projects').select('*,sigmun_topics(name,slug)').eq('slug',slug).maybeSingle(); if(error)throw error; return data; }
   async function geoLayers(projectId){ let q=client.from('sigmun_geo_layers').select('*').order('sort_order').order('name'); if(projectId)q=q.eq('project_id',projectId); const {data,error}=await q; if(error)throw error; return data||[]; }
   async function statLayers(projectId){ let q=client.from('sigmun_stat_layers').select('*').order('sort_order').order('name'); if(projectId)q=q.eq('project_id',projectId); const {data,error}=await q; if(error)throw error; return data||[]; }
-  async function geojson(layerId){ const {data,error}=await client.rpc('sigmun_geo_layer_geojson',{p_layer_id:layerId}); if(error)throw error; return data||{type:'FeatureCollection',features:[]}; }
+  async function geojson(layerId,options={}){
+    const onProgress=typeof options.onProgress==='function'?options.onProgress:()=>{},pageSize=Math.max(250,Math.min(1200,Number(options.pageSize)||800));
+    let offset=0,total=null,features=[],usedPaged=false;
+    while(true){
+      const {data,error}=await client.rpc('sigmun_geo_layer_geojson_page',{p_layer_id:layerId,p_limit:pageSize,p_offset:offset});
+      if(error){
+        if(offset===0){const legacy=await client.rpc('sigmun_geo_layer_geojson',{p_layer_id:layerId});if(legacy.error)throw legacy.error;return legacy.data||{type:'FeatureCollection',features:[]};}
+        throw error;
+      }
+      usedPaged=true;const page=data||{},rows=Array.isArray(page.features)?page.features:[];if(total===null)total=Number(page.total)||rows.length;
+      features.push(...rows);offset+=rows.length;onProgress(features.length,total||features.length);
+      if(!page.has_more||!rows.length||features.length>=total)break;
+      await new Promise(r=>setTimeout(r,0));
+    }
+    return{type:'FeatureCollection',features,_sigmun:{paged:usedPaged,total:total??features.length}};
+  }
   async function statRecords(layerId){ const {data,error}=await client.from('sigmun_stat_records').select('id,record_order,attributes').eq('layer_id',layerId).order('record_order').range(0,9999); if(error)throw error; return (data||[]).map(r=>({__id:r.id,...(r.attributes||{})})); }
 
   async function session(){ const {data,error}=await client.auth.getSession(); if(error)throw error; return data.session; }

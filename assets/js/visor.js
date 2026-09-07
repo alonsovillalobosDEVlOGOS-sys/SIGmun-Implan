@@ -66,13 +66,23 @@
     for(let i=0;i<sorted.length;i++){
       const d=sorted[i];
       try{
-        const gj=d.geometry_type==='RasterOverlay'?{type:'FeatureCollection',features:[]}:await SigmunDB.geojson(d.id),obj=makeLayer(d,gj,i);
+        const shouldLoad=d.geometry_type==='RasterOverlay'||d.is_visible!==false;
+        const gj=shouldLoad&&d.geometry_type!=='RasterOverlay'?await SigmunDB.geojson(d.id,{onProgress:(done,total)=>{$('mapDesc').textContent=`Cargando ${d.name}: ${done.toLocaleString('es-MX')} / ${total.toLocaleString('es-MX')} elementos…`;}}):{type:'FeatureCollection',features:[]};
+        const obj=makeLayer(d,gj,i);obj.loaded=shouldLoad;obj.index=i;
         if(d.is_visible!==false)obj.leaflet.addTo(map);
         state.layers.set(d.id,obj);
-      }catch(e){console.error('Capa',d.name,e)}
+      }catch(e){console.error('Capa',d.name,e);toast(`No fue posible cargar ${d.name}: ${e.message}`,true)}
     }
-    renderLayerList();renderMapLegend();const first=sorted.find(d=>state.layers.has(d.id));
+    $('mapDesc').textContent=state.project?.description||'';
+    renderLayerList();renderMapLegend();const first=sorted.find(d=>state.layers.get(d.id)?.loaded&&map.hasLayer(state.layers.get(d.id).leaflet))||sorted.find(d=>state.layers.get(d.id)?.loaded);
     if(first){selectLayer(first.id);fitAll()}
+  }
+  async function ensureLayerLoaded(obj){
+    if(!obj||obj.loaded)return obj;
+    const d=obj.def,index=obj.index||0,oldOpacity=obj.opacity??1;
+    $('mapDesc').textContent=`Cargando ${d.name}…`;
+    const gj=await SigmunDB.geojson(d.id,{onProgress:(done,total)=>{$('mapDesc').textContent=`Cargando ${d.name}: ${done.toLocaleString('es-MX')} / ${total.toLocaleString('es-MX')} elementos…`;}});
+    const fresh=makeLayer(d,gj,index);fresh.loaded=true;fresh.index=index;fresh.opacity=oldOpacity;applyLayerStyle(fresh);state.layers.set(d.id,fresh);$('mapDesc').textContent=state.project?.description||'';return fresh;
   }
   function rendererName(r,type=''){if(type==='RasterOverlay')return'Cobertura ráster';return r==='kml'?'Estilo KML original':r==='categorized'?'Categorías':r==='graduated'?'Rangos':'Símbolo único'}
   function rendererDetail(x){const s=x.style;if(s.renderer==='kml'){const f=s.kmlLegendField||SigmunTheme.inferKmlLegendField(x.geojson.features||[]);return f?`${f} · ${x.subgroups.length} clases`:`${x.subgroups.length} estilos`}if(s.renderer==='categorized')return s.field?`${s.field} · ${x.subgroups.length||s.categories?.length||0} clases`:'';if(s.renderer==='graduated')return s.field?`${s.field} · ${s.classes?.length||0} rangos`:'';return''}
@@ -122,8 +132,8 @@
     return`<details class="layer-subgroups" ${x.def.id===state.selected?'open':''}><summary><span>${esc(title)}</span><b>${x.subgroups.length}</b></summary><div class="subgroup-actions"><button type="button" data-sub-all="${x.def.id}">Todas</button><button type="button" data-sub-none="${x.def.id}">Ninguna</button></div><div class="subgroup-list">${x.subgroups.map(g=>`<label class="subgroup-row"><input type="checkbox" data-sub-toggle="${x.def.id}" data-sub-key="${esc(g.key)}" ${x.disabledSubgroups.has(g.key)?'':'checked'}><i style="background:${g.color};opacity:${g.opacity??1}"></i><span title="${esc(g.displayLabel||g.label)}">${esc(g.displayLabel||g.label)}</span><em>${g.count.toLocaleString('es-MX')}</em></label>`).join('')}</div></details>`;
   }
   function layerCard(x){
-    const active=map.hasLayer(x.leaflet),features=visibleFeatures(x),c=x.def.geometry_type==='RasterOverlay'?'#62b5e5':SigmunTheme.colorForFeature(x.style,features[0]||x.geojson.features?.[0]||{}),detail=rendererDetail(x),total=(x.geojson.features||[]).length+(x.overlayCount||0);
-    return`<div class="layer-item ${x.def.id===state.selected?'selected':''}" data-layer-card="${x.def.id}"><div class="layer-row"><label class="layer-check" title="Mostrar/ocultar capa"><input type="checkbox" data-toggle="${x.def.id}" ${active?'checked':''}><span></span></label><span class="dot" style="background:${c}"></span><button class="layer-name" data-select="${x.def.id}">${esc(x.def.name)}</button><div class="layer-tools"><button class="mini-icon" data-zoom="${x.def.id}" title="Acercar"><i class="bi bi-search"></i></button></div></div><div class="layer-meta"><b>${esc(rendererName(x.style.renderer,x.def.geometry_type))}</b>${detail?` · ${esc(detail)}`:''} · ${(features.length+(x.overlayCount||0)).toLocaleString('es-MX')} / ${total.toLocaleString('es-MX')} elementos</div><div class="layer-opacity-row"><span>Opacidad</span><input type="range" data-opacity="${x.def.id}" min="0" max="100" value="${Math.round(x.opacity*100)}" aria-label="Opacidad de ${esc(x.def.name)}"><b>${Math.round(x.opacity*100)}%</b></div>${subgroupRows(x)}${miniLegend(x)}</div>`;
+    const active=map.hasLayer(x.leaflet),features=visibleFeatures(x),c=x.def.geometry_type==='RasterOverlay'?'#62b5e5':SigmunTheme.colorForFeature(x.style,features[0]||x.geojson.features?.[0]||{}),detail=rendererDetail(x),total=x.loaded?((x.geojson.features||[]).length+(x.overlayCount||0)):Number(x.def.metadata?.feature_count||0);
+    return`<div class="layer-item ${x.def.id===state.selected?'selected':''}" data-layer-card="${x.def.id}"><div class="layer-row"><label class="layer-check" title="Mostrar/ocultar capa"><input type="checkbox" data-toggle="${x.def.id}" ${active?'checked':''}><span></span></label><span class="dot" style="background:${c}"></span><button class="layer-name" data-select="${x.def.id}">${esc(x.def.name)}</button><div class="layer-tools"><button class="mini-icon" data-zoom="${x.def.id}" title="Acercar"><i class="bi bi-search"></i></button></div></div><div class="layer-meta"><b>${esc(rendererName(x.style.renderer,x.def.geometry_type))}</b>${detail?` · ${esc(detail)}`:''}${x.loaded?'':' · carga diferida'} · ${(features.length+(x.overlayCount||0)).toLocaleString('es-MX')} / ${total.toLocaleString('es-MX')} elementos</div><div class="layer-opacity-row"><span>Opacidad</span><input type="range" data-opacity="${x.def.id}" min="0" max="100" value="${Math.round(x.opacity*100)}" aria-label="Opacidad de ${esc(x.def.name)}"><b>${Math.round(x.opacity*100)}%</b></div>${subgroupRows(x)}${miniLegend(x)}</div>`;
   }
   function renderLayerList(){
     const arr=[...state.layers.values()].sort((a,b)=>(a.def.sort_order||0)-(b.def.sort_order||0)),groups=collectionGroups(arr);$('layerList').innerHTML=arr.length?groups.map(g=>`<section class="viewer-layer-group"><div class="viewer-layer-group-head"><div><i class="bi bi-collection"></i><b>${esc(g.title)}</b><span>${g.layers.length} capa${g.layers.length===1?'':'s'}</span></div><div><button type="button" data-group-show="${esc(g.key)}">Todas</button><button type="button" data-group-hide="${esc(g.key)}">Ninguna</button></div></div>${g.layers.map(layerCard).join('')}</section>`).join(''):'<div class="empty">Este proyecto todavía no tiene capas geográficas publicadas.</div>';
@@ -135,8 +145,8 @@
     document.querySelectorAll('[data-group-show]').forEach(b=>b.onclick=()=>setCollectionVisible(b.dataset.groupShow,true));document.querySelectorAll('[data-group-hide]').forEach(b=>b.onclick=()=>setCollectionVisible(b.dataset.groupHide,false));
     updateDataSelect();updateVisibleCount();
   }
-  function setLayerVisible(id,on,rerender=true){const x=state.layers.get(id);if(!x)return;if(on){if(!map.hasLayer(x.leaflet))x.leaflet.addTo(map)}else if(map.hasLayer(x.leaflet))map.removeLayer(x.leaflet);if(rerender){renderLayerList();renderMapLegend()}}
-  function setCollectionVisible(key,on){for(const x of state.layers.values()){const m=x.def.metadata||{},k=m.import_group_id?`g:${m.import_group_id}`:'standalone';if(k===key)setLayerVisible(x.def.id,on,false)}renderLayerList();renderMapLegend()}
+  async function setLayerVisible(id,on,rerender=true){let x=state.layers.get(id);if(!x)return;if(on){try{x=await ensureLayerLoaded(x);if(!map.hasLayer(x.leaflet))x.leaflet.addTo(map)}catch(e){toast(`No fue posible activar ${x.def.name}: ${e.message}`,true);return}}else if(map.hasLayer(x.leaflet))map.removeLayer(x.leaflet);if(rerender){renderLayerList();renderMapLegend()}}
+  async function setCollectionVisible(key,on){const targets=[...state.layers.values()].filter(x=>{const m=x.def.metadata||{},k=m.import_group_id?`g:${m.import_group_id}`:'standalone';return k===key});for(const x of targets)await setLayerVisible(x.def.id,on,false);renderLayerList();renderMapLegend()}
   function setAllSubgroups(id,on){const x=state.layers.get(id);if(!x)return;x.disabledSubgroups.clear();if(!on)x.subgroups.forEach(g=>x.disabledSubgroups.add(g.key));syncSubgroups(x);afterSubgroupChange(x)}
   function toggleSubgroup(id,key,on){const x=state.layers.get(id);if(!x)return;on?x.disabledSubgroups.delete(key):x.disabledSubgroups.add(key);syncSubgroups(x);afterSubgroupChange(x)}
   function syncSubgroups(x){for(const child of x.children){const key=child.__sigmunGroup,should=!key||!x.disabledSubgroups.has(key),has=x.leaflet.hasLayer(child);if(should&&!has)x.leaflet.addLayer(child);else if(!should&&has)x.leaflet.removeLayer(child)}applyLayerStyle(x)}
@@ -154,8 +164,8 @@
     }
   }
   function updateVisibleCount(){const total=state.layers.size,visible=[...state.layers.values()].filter(x=>map.hasLayer(x.leaflet)).length;if($('visibleLayerCount'))$('visibleLayerCount').textContent=`${visible} de ${total} visibles`}
-  $('showAllLayers').onclick=()=>{for(const x of state.layers.values()){x.disabledSubgroups.clear();syncSubgroups(x);setLayerVisible(x.def.id,true,false)}renderLayerList();renderMapLegend();fitAll()};
-  $('hideAllLayers').onclick=()=>{for(const x of state.layers.values())setLayerVisible(x.def.id,false,false);renderLayerList();renderMapLegend()};
+  $('showAllLayers').onclick=async()=>{for(const x0 of [...state.layers.values()]){let x=x0;try{x=await ensureLayerLoaded(x)}catch(e){continue}x.disabledSubgroups.clear();syncSubgroups(x);await setLayerVisible(x.def.id,true,false)}renderLayerList();renderMapLegend();fitAll()};
+  $('hideAllLayers').onclick=async()=>{for(const x of state.layers.values())await setLayerVisible(x.def.id,false,false);renderLayerList();renderMapLegend()};
   function renderMapLegend(){
     const visible=[...state.layers.values()].filter(x=>map.hasLayer(x.leaflet)&&x.style.legend?.show!==false).sort((a,b)=>(a.def.sort_order||0)-(b.def.sort_order||0));
     if(!visible.length){$('mapLegend').innerHTML='';$('mapLegend').classList.remove('show');updateVisibleCount();return}
@@ -250,7 +260,7 @@
   }
   window.addEventListener('beforeprint',()=>{preparePrintCartouche();document.body.classList.add('print-ready')});
   window.addEventListener('afterprint',()=>{document.body.classList.remove('print-ready');if(printSnapshot){try{map.setView(printSnapshot.center,printSnapshot.zoom,{animate:false})}catch(e){}}printSnapshot=null});
-  function selectLayer(id,rerender=true){state.selected=id;const x=state.layers.get(id),features=visibleFeatures(x);state.rows=features.map((f,i)=>({__fid:featureId(f,i),__geometry:f.geometry?.type,...Object.fromEntries(Object.entries(f.properties||{}).filter(([k])=>!k.startsWith('_kml_')))}));state.filtered=[...state.rows];if(rerender)renderLayerList();refreshData()}
+  async function selectLayer(id,rerender=true){state.selected=id;let x=state.layers.get(id);if(!x)return;try{x=await ensureLayerLoaded(x)}catch(e){toast(`No fue posible consultar ${x.def.name}: ${e.message}`,true);return}const features=visibleFeatures(x);state.rows=features.map((f,i)=>({__fid:featureId(f,i),__geometry:f.geometry?.type,...Object.fromEntries(Object.entries(f.properties||{}).filter(([k])=>!k.startsWith('_kml_')))}));state.filtered=[...state.rows];if(rerender)renderLayerList();refreshData()}
   function updateDataSelect(){$('dataLayer').innerHTML=[...state.layers.values()].sort((a,b)=>(a.def.sort_order||0)-(b.def.sort_order||0)).map(x=>`<option value="${x.def.id}" ${x.def.id===state.selected?'selected':''}>${esc(x.def.name)}</option>`).join('');$('dataLayer').onchange=e=>selectLayer(e.target.value)}
   function refreshData(){renderTable();setupFilters();renderAnalysis()}
   function applyFilters(){const term=$('searchInput').value.toLowerCase(),f=$('filterField').value,v=$('filterValue').value;state.filtered=state.rows.filter(r=>(!term||Object.values(r).some(x=>String(x??'').toLowerCase().includes(term)))&&(!f||!v||String(r[f]??'')===v));renderTable();renderAnalysis(false)}
@@ -273,7 +283,7 @@
     $('propertyDrawer').classList.add('open');
   }
   $('closeProps').onclick=()=>$('propertyDrawer').classList.remove('open');
-  function zoomLayer(id){const b=state.layers.get(id)?.leaflet.getBounds();if(b?.isValid())map.fitBounds(b,{padding:[35,35],maxZoom:17})}
+  async function zoomLayer(id){let x=state.layers.get(id);if(!x)return;try{x=await ensureLayerLoaded(x)}catch(e){toast(e.message,true);return}const b=x.leaflet.getBounds();if(b?.isValid())map.fitBounds(b,{padding:[35,35],maxZoom:17})}
   function fitAll(){const list=[...state.layers.values()].filter(x=>map.hasLayer(x.leaflet));if(!list.length)return;const b=L.featureGroup(list.map(x=>x.leaflet)).getBounds();if(b?.isValid())map.fitBounds(b,{padding:[30,30],maxZoom:16})}
 
   document.querySelectorAll('.viewer-tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.viewer-tab').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.view-pane').forEach(x=>x.classList.toggle('active',x.dataset.pane===b.dataset.tab))});
