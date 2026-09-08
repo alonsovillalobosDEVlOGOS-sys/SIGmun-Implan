@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Edificios Delicias 3D · SIGmun</name>
+    <description><![CDATA[
+      Capa remota preparada para SIGmun Delicias. El administrador resuelve el NetworkLink mediante WFS,
+      conserva las geometrías poligonales y genera atributos 3D de altura aproximada, niveles, rango de altura,
+      superficie de huella y volumen estimado. La altura se considera estimada cuando la fuente no publica un
+      campo explícito de altura o niveles.
+    ]]></description>
+    <ExtendedData>
+      <Data name="SIGMUN_3D"><value>true</value></Data>
+      <Data name="SIGMUN_LAYER_ROLE"><value>building_footprints</value></Data>
+      <Data name="SIGMUN_CITY"><value>Delicias, Chihuahua</value></Data>
+      <Data name="SIGMUN_HEIGHT_METHOD"><value>auto</value></Data>
+      <Data name="SIGMUN_FLOOR_HEIGHT_M"><value>3.2</value></Data>
+      <Data name="SIGMUN_DEFAULT_HEIGHT_M"><value>3.2</value></Data>
+      <Data name="SIGMUN_HEIGHT_OUTPUT"><value>ALTURA_M</value></Data>
+      <Data name="SIGMUN_LEVELS_OUTPUT"><value>NIVELES_EST</value></Data>
+      <Data name="SIGMUN_HEIGHT_BAND_OUTPUT"><value>RANGO_ALTURA</value></Data>
+      <Data name="SIGMUN_AREA_OUTPUT"><value>AREA_M2</value></Data>
+      <Data name="SIGMUN_AREA_BAND_OUTPUT"><value>RANGO_SUPERFICIE</value></Data>
+      <Data name="SIGMUN_CONFIDENCE_OUTPUT"><value>CONFIANZA_ALTURA</value></Data>
+      <Data name="SIGMUN_ESTIMATED_OUTPUT"><value>ALTURA_ESTIMADA</value></Data>
+      <Data name="SIGMUN_VOLUME_OUTPUT"><value>VOLUMEN_M3_EST</value></Data>
+      <Data name="SIGMUN_SOURCE"><value>IDE SEDATU / GeoServer NetworkLink</value></Data>
+    </ExtendedData>
+    <LookAt>
+      <longitude>-105.5090</longitude>
+      <latitude>28.1511</latitude>
+      <altitude>0</altitude>
+      <heading>0</heading>
+      <tilt>55</tilt>
+      <range>26000</range>
+      <altitudeMode>relativeToGround</altitudeMode>
+    </LookAt>
+    <NetworkLink>
+      <name>Edificios Delicias · fuente remota</name>
+      <visibility>1</visibility>
+      <open>1</open>
+      <Link>
+        <href>https://ide.sedatu.gob.mx/geoserver/wms?service=wms&amp;request=GetMap&amp;version=1.1.1&amp;format=application/vnd.google-earth.kml+xml&amp;layers=geonode:mun_08021_27496d4410670ad0839a579da1645e27&amp;styles=mun_08021_27496d4410670ad0839a579da1645e27&amp;height=2048&amp;width=2048&amp;transparent=false&amp;srs=EPSG:4326&amp;format_options=AUTOFIT:true;KMATTR:true;KMPLACEMARK:false;KMSCORE:40;MODE:refresh;SUPEROVERLAY:false</href>
+        <viewRefreshMode>onStop</viewRefreshMode>
+        <viewRefreshTime>1</viewRefreshTime>
+      </Link>
+    </NetworkLink>
+  </Document>
+</kml>

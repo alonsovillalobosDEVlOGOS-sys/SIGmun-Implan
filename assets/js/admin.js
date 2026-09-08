@@ -144,13 +144,14 @@
   $('saveProjectBtn').onclick=async()=>{const btn=$('saveProjectBtn'),name=$('projectName').value.trim(),lat=Number($('projectLat').value),lon=Number($('projectLon').value);if(!name||!$('projectTopic').value)return toast('Completa tema y nombre del proyecto.',true);if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180)return toast('Centro geográfico inválido.',true);const payload={topic_id:$('projectTopic').value,name,description:$('projectDesc').value.trim()||null,project_type:$('projectType').value,icon:$('projectIcon').value.trim()||'bi-map',color:$('projectColor').value,sort_order:Number($('projectOrder').value)||0,center_lat:lat,center_lon:lon,default_zoom:Number($('projectZoom').value)||13,is_featured:$('projectFeatured').checked,is_active:$('projectActive').checked};if($('projectId').value){payload.id=$('projectId').value;payload.slug=$('projectSlug').value}setBusy(btn,true,'Guardando…');try{await SigmunDB.saveProject(payload);resetProjectForm();await refreshAll();toast('Proyecto guardado.')}catch(e){toast(e.message,true)}finally{setBusy(btn,false)}};
   async function removeProject(id){const p=state.projects.find(x=>x.id===id);if(!confirm(`¿Eliminar “${p?.name||'este proyecto'}” y todas sus capas?`))return;try{await SigmunDB.deleteProject(id);await refreshAll();toast('Proyecto eliminado.')}catch(e){toast(e.message,true)}}
 
-  const geoEditor={layer:null,geojson:null,selected:null,previewMap:null,previewLayer:null,sortables:[]};
+  const geoEditor={layer:null,geojson:null,selected:null,previewMap:null,previewLayer:null,preview3dMap:null,preview3dReady:false,sortables:[]};
   const statEditor={layer:null,rows:[],profiles:[],chart:null};
 
   function setEditorTab(kind,name){
     document.querySelectorAll(`[data-${kind}-tab]`).forEach(b=>b.classList.toggle('active',b.dataset[`${kind}Tab`]===name));
     document.querySelectorAll(`[data-${kind}-pane]`).forEach(p=>p.classList.toggle('active',p.dataset[`${kind}Pane`]===name));
     if(kind==='geo'&&name==='preview')setTimeout(()=>{ensureGeoPreviewMap();geoEditor.previewMap?.invalidateSize();renderGeoPreview();},80);
+    if(kind==='geo'&&name==='preview3d')setTimeout(()=>{ensureGeoPreview3dMap();geoEditor.preview3dMap?.resize();renderGeo3dPreview();},100);
     if(kind==='stat'&&name==='default')setTimeout(()=>renderStatPreview(),40);
   }
   document.querySelectorAll('[data-geo-tab]').forEach(b=>b.onclick=()=>setEditorTab('geo',b.dataset.geoTab));
@@ -197,8 +198,24 @@
     }
     return'';
   }
+  function renderGeo3dDetection(parsed){
+    const panel=$('geo3dPanel'),polys=parsed?.polygons||[];show('geo3dPanel',polys.length>0);if(!polys.length)return;
+    const c=SigmunData.buildingFieldCandidates(parsed),opts='<option value="">— Detectar automáticamente —</option>'+c.numeric.map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join('');
+    $('geoHeightField').innerHTML=opts;$('geoLevelsField').innerHTML=opts;$('geoHeightField').value=c.heightField||'';$('geoLevelsField').value=c.levelsField||'';
+    const auto=!!parsed.threeD;$('geo3dEnabled').checked=auto;
+    if(parsed?.remoteConfig?.SIGMUN_HEIGHT_METHOD)$('geoHeightMode').value=String(parsed.remoteConfig.SIGMUN_HEIGHT_METHOD).toLowerCase();
+    if(parsed?.remoteConfig?.SIGMUN_FLOOR_HEIGHT_M)$('geoFloorHeight').value=Number(parsed.remoteConfig.SIGMUN_FLOOR_HEIGHT_M)||3.2;
+    if(parsed?.remoteConfig?.SIGMUN_DEFAULT_HEIGHT_M)$('geoDefaultHeight').value=Number(parsed.remoteConfig.SIGMUN_DEFAULT_HEIGHT_M)||3.2;
+    const remote=parsed?.networkLinks?.length?` · NetworkLink remoto resuelto (${Number(parsed?.diagnostics?.remote_features||0).toLocaleString('es-MX')} entidades)`:'';
+    const guard=parsed?.threeDWarning?` Advertencia: ${parsed.threeDWarning}. La activación 3D queda manual para evitar extruir polígonos que no sean edificios.`:'';
+    $('geo3dSummary').textContent=`${polys.length.toLocaleString('es-MX')} polígonos disponibles para extrusión${remote}. ${c.heightField?`Campo de altura sugerido: ${c.heightField}.`:c.levelsField?`Campo de niveles sugerido: ${c.levelsField}.`:'Si no existe altura/niveles, SIGmun usará la altura predeterminada y marcará CONFIANZA_ALTURA como Baja.'} También se calculará RANGO_SUPERFICIE para segmentar huellas de edificios.${guard}`;
+  }
+  function geo3dOptions(){return{mode:$('geoHeightMode')?.value||'auto',heightField:$('geoHeightField')?.value||'',levelsField:$('geoLevelsField')?.value||'',floorHeight:Number($('geoFloorHeight')?.value)||3.2,defaultHeight:Number($('geoDefaultHeight')?.value)||3.2}}
+  function group3dEnabled(group){return !!group?.polygons?.some(p=>p?.attributes?._sigmun_3d)}
+  function heightStyleCategories(){return (SigmunData.HEIGHT_BANDS||[]).map(b=>({value:b.label,label:b.label,color:b.color}))}
   function importStyle(parsed,group,name,index=0){
-    const isKml=['kml','kmz'].includes(parsed?.format),color=isKml?kmlFallbackColor(parsed,group,index):$('geoColor').value;
+    const is3d=group3dEnabled(group),isKml=['kml','kmz'].includes(parsed?.format),color=isKml?kmlFallbackColor(parsed,group,index):$('geoColor').value;
+    if(is3d)return SigmunTheme.normalizeStyle({renderer:'categorized',field:'RANGO_ALTURA',categories:heightStyleCategories(),color:'#2a9d8f',opacity:.9,fillOpacity:.76,weight:.8,labelField:'name',legend:{show:true,title:`${name} · altura aproximada`,noDataLabel:'Sin dato'},threeD:{enabled:true,heightField:'ALTURA_M',baseHeightField:'ALTURA_BASE_M',levelsField:'NIVELES_EST',bandField:'RANGO_ALTURA',colorField:'RANGO_ALTURA',pitch:56,bearing:-18}});
     if(!isKml)return SigmunTheme.normalizeStyle({renderer:'single',color,legend:{show:true,title:name,noDataLabel:'Sin dato'}});
     const legendField=inferKmlGroupField(group);
     return SigmunTheme.normalizeStyle({renderer:'kml',preserveKmlStyle:true,kmlStyles:parsed.kmlStyles||{},kmlOpacity:1,kmlLegendField:legendField,color,opacity:1,fillOpacity:1,legend:{show:true,title:name,noDataLabel:'Sin dato'}});
@@ -214,28 +231,29 @@
     const split=document.querySelector('input[name="geoImportMode"][value="split"]');if(split&&groups.length>1)split.checked=true;
   }
   $('geoFile').addEventListener('change',async()=>{
-    const file=$('geoFile').files[0];geoImport.parsed=null;geoImport.fileKey='';show('geoKmlModePanel',false);if(!file)return;
+    const file=$('geoFile').files[0];geoImport.parsed=null;geoImport.fileKey='';show('geoKmlModePanel',false);show('geo3dPanel',false);if(!file)return;
     const ext=(file.name.split('.').pop()||'').toLowerCase();if(!['kml','kmz'].includes(ext))return;
-    try{setProgress('geo','Analizando estructura KML/KMZ…',5);const parsed=await SigmunData.parseGeoFile(file,{onProgress:(txt,pct)=>setProgress('geo',txt,pct)});geoImport.parsed=parsed;geoImport.fileKey=`${file.name}|${file.size}|${file.lastModified}`;renderKmlDetection(parsed);setProgress('geo',`Listo: ${geoTotal(parsed).toLocaleString('es-MX')} geometrías y ${(parsed.groups||[]).length} capas detectadas.`,25)}catch(e){setProgress('geo','Error al analizar: '+e.message,0);toast(e.message,true)}
+    try{setProgress('geo','Analizando estructura KML/KMZ…',5);const parsed=await SigmunData.parseGeoFile(file,{onProgress:(txt,pct)=>setProgress('geo',txt,pct)});geoImport.parsed=parsed;geoImport.fileKey=`${file.name}|${file.size}|${file.lastModified}`;renderKmlDetection(parsed);renderGeo3dDetection(parsed);setProgress('geo',`Listo: ${geoTotal(parsed).toLocaleString('es-MX')} geometrías y ${(parsed.groups||[]).length} capas detectadas.`,25)}catch(e){setProgress('geo','Error al analizar: '+e.message,0);toast(e.message,true)}
   });
   $('uploadGeoBtn').onclick=async()=>{
     const btn=$('uploadGeoBtn'),file=$('geoFile').files[0],name=$('geoName').value.trim();if(!file||!name)return toast('Selecciona un archivo y asigna un nombre o colección.',true);
     const created=[];setBusy(btn,true,'Cargando…');setProgress('geo','Procesando archivo…',8);
     try{
       const key=`${file.name}|${file.size}|${file.lastModified}`,parsed=(geoImport.parsed&&geoImport.fileKey===key)?geoImport.parsed:await SigmunData.parseGeoFile(file,{onProgress:(txt,pct)=>setProgress('geo',txt,pct)});
+      if($('geo3dEnabled')?.checked&&parsed.polygons?.length)SigmunData.enrichBuildingPolygons(parsed,geo3dOptions());
       if(!geoTotal(parsed))throw new Error('No se encontraron puntos, polígonos o líneas compatibles.');
       const isKml=['kml','kmz'].includes(parsed.format),mode=isKml?(document.querySelector('input[name="geoImportMode"]:checked')?.value||'single'):'single',groups=mode==='split'&&parsed.groups?.length>1?parsed.groups:[{name,points:parsed.points||[],polygons:parsed.polygons||[],lines:parsed.lines||[],overlays:parsed.overlays||[],featureCount:geoTotal(parsed),folders:parsed.folders||[],styles:Object.keys(parsed.kmlStyles||{})}];
       const projectId=$('geoProject').value,groupId=importId(),baseOrder=Math.max(0,...state.geo.filter(x=>x.project_id===projectId).map(x=>Number(x.sort_order)||0));let completed=0,total=groups.reduce((a,g)=>a+geoTotal(g),0);
       for(let i=0;i<groups.length;i++){
         const g=groups[i],layerName=mode==='split'?(g.name||`${name} ${i+1}`):name,count=geoTotal(g);if(!count)continue;
-        const metadata={ignored_geometry_types:parsed.ignored||[],feature_count:count,point_count:g.points?.length||0,polygon_count:g.polygons?.length||0,line_count:g.lines?.length||0,raster_overlay_count:g.overlays?.length||0,raster_overlays:g.overlays||[],parser:parsed.parser||null,kml_file:parsed.kmlName||null,kml_entries:parsed.kmlEntries||[],kml_diagnostics:parsed.diagnostics||{},import_mode:mode==='split'?'split_kml_documents':'single_layer',import_group_id:groupId,source_collection:name,source_document:mode==='split'?g.name:null,source_group_index:i+1,source_group_count:groups.length,folder_paths:g.folders||[],kml_style_ids:g.styles||[]};
+        const metadata={ignored_geometry_types:parsed.ignored||[],feature_count:count,point_count:g.points?.length||0,polygon_count:g.polygons?.length||0,line_count:g.lines?.length||0,raster_overlay_count:g.overlays?.length||0,raster_overlays:g.overlays||[],parser:parsed.parser||null,kml_file:parsed.kmlName||null,kml_entries:parsed.kmlEntries||[],kml_diagnostics:parsed.diagnostics||{},import_mode:mode==='split'?'split_kml_documents':'single_layer',import_group_id:groupId,source_collection:name,source_document:mode==='split'?g.name:null,source_group_index:i+1,source_group_count:groups.length,folder_paths:g.folders||[],kml_style_ids:g.styles||[],three_d:group3dEnabled(g)?{enabled:true,height_field:'ALTURA_M',base_height_field:'ALTURA_BASE_M',levels_field:'NIVELES_EST',band_field:'RANGO_ALTURA',source_field:'FUENTE_ALTURA',confidence_field:'CONFIANZA_ALTURA',estimated_field:'ALTURA_ESTIMADA',area_field:'AREA_M2',area_band_field:'RANGO_SUPERFICIE',volume_field:'VOLUMEN_M3_EST',...(parsed.threeD||{})}:null,network_links:parsed.networkLinks||[],remote_source:parsed.remote||null};
         setProgress('geo',`Creando capa ${i+1} de ${groups.length}: ${layerName}…`,25+Math.round((completed/Math.max(1,total))*55));
         const layer=await SigmunDB.createGeoLayer({project_id:projectId,name:layerName,description:$('geoDescription').value.trim()||null,source_format:parsed.format,geometry_type:geoType(g),source_file_name:file.name,style:importStyle(parsed,g,layerName,i),metadata,is_public:$('geoPublic').checked,is_visible:$('geoVisible').checked,sort_order:baseOrder+(i+1)*10,created_by:state.profile.id});created.push(layer);
         if(SigmunDB.insertGeoBatch){await SigmunDB.insertGeoBatch(layer.id,g,(done,n)=>{const overall=completed+done;setProgress('geo',`Almacenando ${layerName}: ${done.toLocaleString('es-MX')} / ${n.toLocaleString('es-MX')}…`,28+Math.round((overall/Math.max(1,total))*66))})}
         else{if(g.points?.length)await SigmunDB.insertPoints(layer.id,g.points);if(g.polygons?.length)await SigmunDB.insertPolygons(layer.id,g.polygons);if(g.lines?.length)await SigmunDB.insertLines(layer.id,g.lines)}
         completed+=count;
       }
-      setProgress('geo',`Carga completada: ${completed.toLocaleString('es-MX')} elementos en ${created.length} capa${created.length===1?'':'s'}. Los estilos KML originales y subcarpetas fueron conservados.`,100);$('geoFile').value='';$('geoName').value='';$('geoDescription').value='';geoImport.parsed=null;geoImport.fileKey='';show('geoKmlModePanel',false);await refreshAll();toast(created.length>1?`${created.length} capas geográficas almacenadas.`:'Capa geográfica almacenada.');
+      setProgress('geo',`Carga completada: ${completed.toLocaleString('es-MX')} elementos en ${created.length} capa${created.length===1?'':'s'}. Los estilos KML originales y subcarpetas fueron conservados.`,100);$('geoFile').value='';$('geoName').value='';$('geoDescription').value='';geoImport.parsed=null;geoImport.fileKey='';show('geoKmlModePanel',false);show('geo3dPanel',false);await refreshAll();toast(created.length>1?`${created.length} capas geográficas almacenadas.`:'Capa geográfica almacenada.');
     }catch(e){for(const layer of [...created].reverse()){try{await SigmunDB.deleteGeoLayer(layer.id)}catch(_){}}setProgress('geo','Error: '+e.message,0);toast(e.message,true)}finally{setBusy(btn,false)}
   };
 
@@ -315,6 +333,26 @@
     const total=geoEditor.geojson.features.length+rasters.length;$('geoPreviewSummary').textContent=`${total.toLocaleString('es-MX')} elementos · ${geoEditor.layer?.geometry_type==='RasterOverlay'?'Cobertura ráster':rendererLabel(style.renderer)}${style.field?' por '+style.field:''}`;
   }
   $('fitGeoPreviewBtn').onclick=()=>{const b=geoEditor.previewLayer?.getBounds();if(b?.isValid())geoEditor.previewMap.fitBounds(b,{padding:[20,20],maxZoom:17})};
+
+
+  function admin3dHeight(f){const p=f?.properties||{},keys=['ALTURA_M','height_m','altura_m','height','altura','_sigmun_height_m'];for(const k of keys){const n=Number(p[k]);if(Number.isFinite(n)&&n>0)return Math.max(2.4,Math.min(250,n))}return null}
+  function geojsonBounds(gj){let west=Infinity,south=Infinity,east=-Infinity,north=-Infinity;const walk=c=>{if(!Array.isArray(c))return;if(c.length>=2&&Number.isFinite(Number(c[0]))&&Number.isFinite(Number(c[1]))){west=Math.min(west,Number(c[0]));east=Math.max(east,Number(c[0]));south=Math.min(south,Number(c[1]));north=Math.max(north,Number(c[1]));return}c.forEach(walk)};(gj?.features||[]).forEach(f=>walk(f.geometry?.coordinates));return Number.isFinite(west)?[[west,south],[east,north]]:null}
+  function ensureGeoPreview3dMap(){
+    if(geoEditor.preview3dMap||!$('geoPreview3dMap')||!window.maplibregl)return;
+    geoEditor.preview3dMap=new maplibregl.Map({container:'geoPreview3dMap',style:{version:8,sources:{osm:{type:'raster',tiles:['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png','https://b.tile.openstreetmap.org/{z}/{x}/{y}.png','https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap'}},layers:[{id:'osm',type:'raster',source:'osm'}]},center:[SIGMUN_CONFIG.defaultCenter[1],SIGMUN_CONFIG.defaultCenter[0]],zoom:SIGMUN_CONFIG.defaultZoom,pitch:56,bearing:-18,antialias:true});
+    geoEditor.preview3dMap.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-left');geoEditor.preview3dMap.on('load',()=>{geoEditor.preview3dReady=true;renderGeo3dPreview()});
+    geoEditor.preview3dMap.on('click',e=>{if(!geoEditor.preview3dMap.getLayer('admin3d-buildings'))return;const f=geoEditor.preview3dMap.queryRenderedFeatures(e.point,{layers:['admin3d-buildings']})[0];if(!f)return;const p=f.properties||{},h=Number(p._sigmun_height_m)||0;new maplibregl.Popup({maxWidth:'260px'}).setLngLat(e.lngLat).setHTML(`<b style="font-family:Manrope;color:#0b315d">${esc(p.name||'Edificio')}</b><div style="font:10px Manrope;color:#64748b;margin-top:4px"><strong>${h.toFixed(1)} m</strong> · ${esc(p.RANGO_ALTURA||'Altura')}</div>`).addTo(geoEditor.preview3dMap)});
+  }
+  function renderGeo3dPreview(){
+    if(!geoEditor.preview3dReady||!geoEditor.geojson)return;const m=geoEditor.preview3dMap,style=readGeoStyle();
+    if(m.getLayer('admin3d-outline'))m.removeLayer('admin3d-outline');if(m.getLayer('admin3d-buildings'))m.removeLayer('admin3d-buildings');if(m.getSource('admin3d-source'))m.removeSource('admin3d-source');
+    const features=(geoEditor.geojson.features||[]).filter(f=>/Polygon/i.test(f.geometry?.type||'')).map((f,i)=>{const h=admin3dHeight(f);if(h===null)return null;const p={...(f.properties||{})};p._sigmun_height_m=h;p._sigmun_base_height_m=Number(p.ALTURA_BASE_M||p._sigmun_base_height_m||0)||0;p._sigmun_color=p._sigmun_height_color||SigmunTheme.colorForFeature(style,f)||'#2a9d8f';return{type:'Feature',id:f.id??i,geometry:f.geometry,properties:p}}).filter(Boolean);
+    $('geoPreview3dSummary').textContent=features.length?`${features.length.toLocaleString('es-MX')} edificios extruidos según ALTURA_M · pitch 56°`:'La capa no contiene polígonos con ALTURA_M. Prepárala como capa 3D al importar o agrega el atributo ALTURA_M.';
+    if(!features.length)return;
+    m.addSource('admin3d-source',{type:'geojson',data:{type:'FeatureCollection',features},generateId:true});m.addLayer({id:'admin3d-buildings',type:'fill-extrusion',source:'admin3d-source',paint:{'fill-extrusion-color':['get','_sigmun_color'],'fill-extrusion-height':['get','_sigmun_height_m'],'fill-extrusion-base':['get','_sigmun_base_height_m'],'fill-extrusion-opacity':.88,'fill-extrusion-vertical-gradient':true}});m.addLayer({id:'admin3d-outline',type:'line',source:'admin3d-source',paint:{'line-color':'rgba(28,46,63,.35)','line-width':.7}});
+    const b=geojsonBounds({features});if(b)m.fitBounds(b,{padding:35,maxZoom:17,pitch:56,bearing:-18});
+  }
+  $('fitGeoPreview3dBtn').onclick=()=>{const b=geojsonBounds(geoEditor.geojson);if(b&&geoEditor.preview3dMap)geoEditor.preview3dMap.fitBounds(b,{padding:35,maxZoom:17,pitch:56,bearing:-18})};
 
   function renderGeoFeatureList(){
     const term=($('geoFeatureSearch').value||'').toLowerCase(),features=geoEditor.geojson?.features||[];const filtered=features.filter(f=>!term||Object.values(f.properties||{}).some(v=>String(v??'').toLowerCase().includes(term))).slice(0,750);

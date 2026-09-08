@@ -143,6 +143,67 @@
   function normalizeLineGeometry(g){if(!g)return null;if(g.type==='LineString')return{type:'MultiLineString',coordinates:[g.coordinates]};if(g.type==='MultiLineString')return g;return null;}
 
 
+  const HEIGHT_BANDS=[
+    {min:0,max:4,label:'Hasta 4 m',color:'#2a9d8f'},
+    {min:4,max:8,label:'4–8 m',color:'#52b788'},
+    {min:8,max:12,label:'8–12 m',color:'#e9c46a'},
+    {min:12,max:20,label:'12–20 m',color:'#f4a261'},
+    {min:20,max:35,label:'20–35 m',color:'#e76f51'},
+    {min:35,max:Infinity,label:'Más de 35 m',color:'#7b2cbf'}
+  ];
+  const AREA_BANDS=[
+    {min:0,max:60,label:'Huella pequeña · ≤60 m²'},
+    {min:60,max:120,label:'Huella media · 60–120 m²'},
+    {min:120,max:250,label:'Huella amplia · 120–250 m²'},
+    {min:250,max:500,label:'Huella grande · 250–500 m²'},
+    {min:500,max:Infinity,label:'Huella muy grande · >500 m²'}
+  ];
+  function areaBand(value){const a=Math.max(0,Number(value)||0);return AREA_BANDS.find(b=>a>=b.min&&a<(b.max===Infinity?Infinity:b.max))||AREA_BANDS[0]}
+  function heightConfidence(source=''){if(/^Campo /i.test(source)||/^Altitud Z/i.test(source))return'Alta';if(/×/i.test(source))return'Media';return'Baja'}
+  const HEIGHT_FIELD_HINTS=['altura_m','height_m','altura','height','altura_edificio','altura_edif','alt_edif','h_edif','elevacion','elevation','z_max','zmax','altura_aprox','altura_estimada'];
+  const LEVEL_FIELD_HINTS=['niveles','nivel','pisos','piso','floors','levels','num_pisos','numero_pisos','n_niveles','num_niveles','plantas'];
+  function heightBand(value){const h=Math.max(0,Number(value)||0);return HEIGHT_BANDS.find(b=>h>=b.min&&h<(b.max===Infinity?Infinity:b.max))||HEIGHT_BANDS[0]}
+  function fieldByHints(attributes,hints){const keys=Object.keys(attributes||{}),m=new Map(keys.map(k=>[norm(k),k]));for(const h of hints){if(m.has(norm(h)))return m.get(norm(h))}return''}
+  function numericField(attributes,field){if(!field)return null;const n=Number(attributes?.[field]);return Number.isFinite(n)?n:null}
+  function ringAreaM2(ring){if(!Array.isArray(ring)||ring.length<4)return 0;const valid=ring.filter(c=>Array.isArray(c)&&Number.isFinite(Number(c[0]))&&Number.isFinite(Number(c[1])));if(valid.length<4)return 0;const lat0=valid.reduce((s,c)=>s+Number(c[1]),0)/valid.length*Math.PI/180,R=6378137,pts=valid.map(c=>[R*Number(c[0])*Math.PI/180*Math.cos(lat0),R*Number(c[1])*Math.PI/180]);let a=0;for(let i=0,j=pts.length-1;i<pts.length;j=i++)a+=(pts[j][0]*pts[i][1]-pts[i][0]*pts[j][1]);return Math.abs(a)/2}
+  function polygonAreaM2(geometry){const g=normalizePolygonGeometry(geometry);if(!g)return 0;let total=0;for(const poly of g.coordinates||[]){if(!poly?.length)continue;let a=ringAreaM2(poly[0]);for(let i=1;i<poly.length;i++)a-=ringAreaM2(poly[i]);total+=Math.max(0,a)}return total}
+  function inferBuildingHeight(item,options={}){
+    const a=item?.attributes||{},floorHeight=Math.max(2.4,Math.min(5,Number(options.floorHeight)||3.2)),defaultHeight=Math.max(2.4,Math.min(80,Number(options.defaultHeight)||3.2));
+    const mode=options.mode||'auto',preferred=options.heightField||'',preferredLevels=options.levelsField||'';
+    let h=null,source='',levels=null;
+    const directField=preferred||fieldByHints(a,HEIGHT_FIELD_HINTS),levelField=preferredLevels||fieldByHints(a,LEVEL_FIELD_HINTS);
+    if(mode==='field'&&directField){h=numericField(a,directField);if(h!==null)source=`Campo ${directField}`}
+    if(h===null&&mode!=='levels'&&mode!=='default'&&directField){h=numericField(a,directField);if(h!==null)source=`Campo ${directField}`}
+    if(h===null&&mode!=='default'&&levelField){levels=numericField(a,levelField);if(levels!==null&&levels>0){h=levels*floorHeight;source=`${levelField} × ${floorHeight.toFixed(1)} m`}}
+    const zmax=Number(a._kml_z_max),zmin=Number(a._kml_z_min);
+    if(h===null&&mode!=='default'&&Number.isFinite(zmax)&&zmax>0){h=Math.max(0,zmax-(Number.isFinite(zmin)?zmin:0));if(h<1)h=zmax;source='Altitud Z del KML'}
+    if(h===null||!Number.isFinite(h)||h<=0){h=defaultHeight;source='Altura predeterminada estimada'}
+    h=Math.max(2.4,Math.min(250,h));
+    if(levels===null||!Number.isFinite(levels)||levels<=0)levels=Math.max(1,Math.round(h/floorHeight));
+    return{height:Math.round(h*100)/100,levels:Math.round(levels),source,floorHeight};
+  }
+  function enrichBuildingPolygons(parsed,options={}){
+    const polygons=parsed?.polygons||[];let direct=0,estimated=0;const bands=new Map();
+    for(const item of polygons){
+      const r=inferBuildingHeight(item,options),area=Math.round(polygonAreaM2(item.geometry)*100)/100,band=heightBand(r.height),a=item.attributes||(item.attributes={});
+      const areaClass=areaBand(area),confidence=heightConfidence(r.source),volume=Math.round(area*r.height*100)/100;
+      a.ALTURA_M=r.height;a.ALTURA_BASE_M=0;a.NIVELES_EST=r.levels;a.RANGO_ALTURA=band.label;a.FUENTE_ALTURA=r.source;a.CONFIANZA_ALTURA=confidence;a.ALTURA_ESTIMADA=confidence==='Alta'?'No':'Sí';a.AREA_M2=area;a.RANGO_SUPERFICIE=areaClass.label;a.VOLUMEN_M3_EST=volume;
+      a._sigmun_3d=true;a._sigmun_height_m=r.height;a._sigmun_base_height_m=0;a._sigmun_height_band=band.label;a._sigmun_height_color=band.color;a._sigmun_height_confidence=confidence;
+      if(/^Campo |Altitud Z/.test(r.source))direct++;else estimated++;bands.set(band.label,(bands.get(band.label)||0)+1);
+    }
+    parsed.threeD={enabled:polygons.length>0,heightField:'ALTURA_M',baseHeightField:'ALTURA_BASE_M',levelsField:'NIVELES_EST',bandField:'RANGO_ALTURA',sourceField:'FUENTE_ALTURA',confidenceField:'CONFIANZA_ALTURA',estimatedField:'ALTURA_ESTIMADA',areaField:'AREA_M2',areaBandField:'RANGO_SUPERFICIE',volumeField:'VOLUMEN_M3_EST',floorHeight:Number(options.floorHeight)||3.2,defaultHeight:Number(options.defaultHeight)||3.2,direct,estimated,bands:Object.fromEntries(bands),definitions:HEIGHT_BANDS.map(x=>({...x,max:Number.isFinite(x.max)?x.max:null})),areaDefinitions:AREA_BANDS.map(x=>({...x,max:Number.isFinite(x.max)?x.max:null}))};
+    if(Array.isArray(parsed.groups))parsed.groups=buildKmlGroups(parsed);
+    return parsed;
+  }
+  function buildingFootprintDiagnostics(parsed){
+    const polys=(parsed?.polygons||[]).slice(0,5000),areas=polys.map(p=>polygonAreaM2(p.geometry)).filter(a=>Number.isFinite(a)&&a>0).sort((a,b)=>a-b);
+    if(!areas.length)return{plausible:false,count:parsed?.polygons?.length||0,medianAreaM2:0,p90AreaM2:0,reason:'Sin áreas poligonales medibles'};
+    const q=p=>areas[Math.min(areas.length-1,Math.max(0,Math.round((areas.length-1)*p)))],median=q(.5),p90=q(.9),count=parsed?.polygons?.length||0,plausible=count>=3&&median<=20000&&p90<=150000;
+    return{plausible,count,medianAreaM2:Math.round(median*10)/10,p90AreaM2:Math.round(p90*10)/10,reason:plausible?'Geometrías compatibles con huellas de edificación':'La geometría no parece una capa típica de huellas de edificios; revisa la fuente antes de extruir'};
+  }
+  function buildingFieldCandidates(parsed){const attrs=(parsed?.polygons||[]).slice(0,3000).map(x=>x.attributes||{}),fields=[...new Set(attrs.flatMap(a=>Object.keys(a).filter(k=>!k.startsWith('_'))))];const numeric=fields.filter(f=>attrs.some(a=>Number.isFinite(Number(a[f]))));const sample=attrs[0]||{};return{fields,numeric,heightField:fieldByHints(sample,HEIGHT_FIELD_HINTS)||numeric.find(f=>HEIGHT_FIELD_HINTS.some(h=>norm(f).includes(norm(h))))||'',levelsField:fieldByHints(sample,LEVEL_FIELD_HINTS)||numeric.find(f=>LEVEL_FIELD_HINTS.some(h=>norm(f).includes(norm(h))))||''}}
+
+
   function kmlColor(value){
     const raw=String(value||'').trim().replace(/^#/,'');
     if(!/^[0-9a-f]{6,8}$/i.test(raw))return null;
@@ -233,9 +294,44 @@
     }
     return out;
   }
+
+  function kmlNetworkLinks(text){
+    const out=[],source=String(text||''),re=/<(?:[\w.-]+:)?NetworkLink\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?NetworkLink>/gi;let m;
+    while((m=re.exec(source))){const body=m[1],name=firstKmlTag(body,'name')||'NetworkLink',href=kmlRawTag(kmlSection(body,'Url'),'href')||kmlRawTag(kmlSection(body,'Link'),'href');if(href)out.push({name,href:xmlDecode(href)})}
+    return out;
+  }
+  function networkLinkWfsUrl(link,startIndex=0,count=5000){
+    try{
+      const src=new URL(link?.href||link),layer=src.searchParams.get('layers')||src.searchParams.get('layer')||src.searchParams.get('typeName')||src.searchParams.get('typenames');if(!layer)return null;
+      const prefix=String(layer).includes(':')?String(layer).split(':')[0]:'';
+      const root=src.pathname.replace(/\/wms$/i,'').replace(/\/geonode\/wms$/i,'/geonode');
+      let path=root.endsWith('/ows')?root:`${root}${prefix&& !root.endsWith('/'+prefix)?'/'+prefix:''}/ows`;
+      path=path.replace(/\/geonode\/geonode\/ows$/,'/geonode/ows').replace(/\/ows\/ows$/,'/ows');
+      const u=new URL(src.origin+path);u.searchParams.set('service','WFS');u.searchParams.set('version','2.0.0');u.searchParams.set('request','GetFeature');u.searchParams.set('typeNames',layer);u.searchParams.set('outputFormat','application/json');u.searchParams.set('srsName','EPSG:4326');u.searchParams.set('count',String(count));u.searchParams.set('startIndex',String(startIndex));return u.toString();
+    }catch(_){return null}
+  }
+  async function resolveNetworkLink(link,options={}){
+    const onProgress=typeof options.onProgress==='function'?options.onProgress:()=>{},pageSize=Math.max(500,Math.min(10000,Number(options.pageSize)||5000)),all=[];let offset=0,total=null,pages=0,lastUrl='';
+    while(true){
+      const url=networkLinkWfsUrl(link,offset,pageSize);lastUrl=url||'';if(!url)throw new Error('El NetworkLink no contiene un parámetro de capa compatible con GeoServer/WFS.');
+      onProgress(`Descargando geometrías remotas: ${offset.toLocaleString('es-MX')}…`,18+Math.min(40,Math.round(offset/Math.max(pageSize,total||pageSize)*30)));
+      let res;try{res=await fetch(url,{mode:'cors',credentials:'omit'})}catch(e){throw new Error(`El KML es un NetworkLink remoto y no fue posible consultar el WFS desde el navegador. Verifica CORS o descarga la capa vectorial desde el portal de origen. ${e.message}`)}
+      if(!res.ok)throw new Error(`El servicio WFS respondió ${res.status}. URL: ${url}`);
+      let gj;try{gj=await res.json()}catch(_){throw new Error('El servicio remoto no devolvió GeoJSON válido.')}
+      const fs=Array.isArray(gj?.features)?gj.features:[];all.push(...fs);pages++;
+      const nm=Number(gj?.numberMatched);if(Number.isFinite(nm)&&nm>=0)total=nm;
+      if(!fs.length||fs.length<pageSize||(total!==null&&all.length>=total)||pages>=100)break;offset+=fs.length;await new Promise(r=>setTimeout(r,0));
+    }
+    const parsed=geojsonFeaturesToStorage({type:'FeatureCollection',features:all});parsed.remote={kind:'NetworkLink/WFS',source:link?.href||'',wfs:lastUrl,features:all.length,pages};parsed.parser='networklink-wfs';parsed.groups=buildKmlGroups(parsed);return parsed;
+  }
   function mimeFromName(name=''){
     const ext=String(name).split('.').pop().toLowerCase();
     return ext==='jpg'||ext==='jpeg'?'image/jpeg':ext==='gif'?'image/gif':ext==='webp'?'image/webp':ext==='svg'?'image/svg+xml':'image/png';
+  }
+  function kmlZStats(fragment){
+    const vals=[];const re=/<(?:[\w.-]+:)?coordinates\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?coordinates>/gi;let m;
+    while((m=re.exec(String(fragment||''))))for(const token of String(m[1]||'').trim().split(/\s+/).filter(Boolean)){const p=token.split(','),z=Number(p[2]);if(Number.isFinite(z))vals.push(z)}
+    if(!vals.length)return null;return{min:Math.min(...vals),max:Math.max(...vals)};
   }
   function kmlCoordinateList(raw){
     const out=[];for(const token of String(raw||'').trim().split(/\s+/).filter(Boolean)){
@@ -319,7 +415,7 @@
       contextPos=to;
     }
     while(true){
-      const openRe=/<(?:[\w.-]+:)?Placemark\b/ig;openRe.lastIndex=pos;const om=openRe.exec(s);if(!om)break;const i=om.index;advanceContext(i);const closeRe=/<\/(?:[\w.-]+:)?Placemark>/ig;closeRe.lastIndex=i;const cm=closeRe.exec(s);if(!cm){ignored.push('Placemark incompleto');break}const frag=s.slice(i,closeRe.lastIndex),name=firstKmlTag(frag,'name')||`Elemento ${count+1}`,attrs=kmlItemContext(kmlAttributes(frag,registry),contextStack);
+      const openRe=/<(?:[\w.-]+:)?Placemark\b/ig;openRe.lastIndex=pos;const om=openRe.exec(s);if(!om)break;const i=om.index;advanceContext(i);const closeRe=/<\/(?:[\w.-]+:)?Placemark>/ig;closeRe.lastIndex=i;const cm=closeRe.exec(s);if(!cm){ignored.push('Placemark incompleto');break}const frag=s.slice(i,closeRe.lastIndex),name=firstKmlTag(frag,'name')||`Elemento ${count+1}`,attrs=kmlItemContext(kmlAttributes(frag,registry),contextStack);const zstats=kmlZStats(frag);if(zstats){attrs._kml_z_min=zstats.min;attrs._kml_z_max=zstats.max;}
       const pointBlocks=allKmlBlocks(frag,'Point'),polyBlocks=allKmlBlocks(frag,'Polygon'),lineBlocks=allKmlBlocks(frag,'LineString');
       for(const b of pointBlocks){const c=kmlCoordinateBlock(b);if(c.length)store.points.push({lat:c[0][1],lon:c[0][0],name,attributes:{...attrs}});else ignored.push('Point sin coordenadas')}
       if(polyBlocks.length){const polygons=[];for(const b of polyBlocks){const rings=kmlPolygonCoordinates(b);if(rings)polygons.push(rings);else ignored.push('Polygon inválido')}if(polygons.length)store.polygons.push({geometry:{type:'MultiPolygon',coordinates:polygons},name,attributes:{...attrs}})}
@@ -349,7 +445,19 @@
         onProgress('Descomprimiendo KMZ…',10);zip=await JSZip.loadAsync(await file.arrayBuffer());const names=Object.keys(zip.files).filter(n=>n.toLowerCase().endsWith('.kml'));
         if(!names.length)throw new Error('El KMZ no contiene ningún archivo KML.');kmlEntries=names;kmlName=names.find(n=>/(^|\/)doc\.kml$/i.test(n))||names[0];text=decodeBytes(await zip.files[kmlName].async('uint8array'));
       }
-      onProgress(`Analizando estructura, subcarpetas y estilos de ${kmlName}…`,14);const parsed=await parseKmlText(text,ext,{onProgress});parsed.kmlName=kmlName;parsed.kmlEntries=kmlEntries;parsed.diagnostics.kml_entries=kmlEntries.length;
+      onProgress(`Analizando estructura, subcarpetas y estilos de ${kmlName}…`,14);let parsed=await parseKmlText(text,ext,{onProgress});parsed.kmlName=kmlName;parsed.kmlEntries=kmlEntries;parsed.diagnostics.kml_entries=kmlEntries.length;
+      const networkLinks=kmlNetworkLinks(text),remoteConfig=Object.fromEntries(Object.entries(kmlExtendedAttributes(text)).filter(([k])=>/^SIGMUN_/i.test(k)));parsed.networkLinks=networkLinks;parsed.remoteConfig=remoteConfig;parsed.diagnostics.network_links=networkLinks.length;
+      if(!(parsed.points?.length||parsed.polygons?.length||parsed.lines?.length||parsed.overlays?.length)&&networkLinks.length&&options.resolveNetworkLinks!==false){
+        onProgress(`El KML contiene un NetworkLink. Consultando datos vectoriales remotos…`,18);
+        const remote=await resolveNetworkLink(networkLinks[0],{onProgress,pageSize:options.remotePageSize||5000});
+        parsed={...parsed,...remote,format:ext,kmlName,kmlEntries,networkLinks,remoteConfig,kmlStyles:parsed.kmlStyles||{},diagnostics:{...(parsed.diagnostics||{}),network_links:networkLinks.length,remote_features:remote.remote?.features||0,remote_pages:remote.remote?.pages||0},documents:parsed.documents||[],folders:parsed.folders||[]};parsed.groups=buildKmlGroups(parsed);
+      }
+      const auto3d=/^(1|true|yes|si|sí)$/i.test(String(remoteConfig.SIGMUN_3D||''));
+      if(auto3d&&parsed.polygons?.length){
+        parsed.threeDRequested=true;parsed.buildingDiagnostics=buildingFootprintDiagnostics(parsed);
+        if(parsed.buildingDiagnostics.plausible)enrichBuildingPolygons(parsed,{mode:String(remoteConfig.SIGMUN_HEIGHT_METHOD||'auto').toLowerCase(),heightField:remoteConfig.SIGMUN_HEIGHT_FIELD||'',levelsField:remoteConfig.SIGMUN_LEVELS_FIELD||'',floorHeight:Number(remoteConfig.SIGMUN_FLOOR_HEIGHT_M)||3.2,defaultHeight:Number(remoteConfig.SIGMUN_DEFAULT_HEIGHT_M)||3.2});
+        else parsed.threeDWarning=parsed.buildingDiagnostics.reason;
+      }
       if(zip){
         const enrich=async(href,maxBytes=1500000)=>{
           if(!href||/^(?:https?:|data:)/i.test(href))return null;
@@ -434,5 +542,5 @@
   function download(name,text,type='text/plain'){const b=new Blob([text],{type}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),500);}
   function inferSchema(rows){return profileFields(rows).map(p=>({name:p.name,label:p.label,type:p.type,role:p.role}));}
 
-  window.SigmunData={decodeBytes,readTextFile,detectCoords,detectGeometryField,rowsToPoints,rowsToGeometries,parseWKT,parseGeometryValue,normalizePolygonGeometry,normalizeLineGeometry,kmlColor,extractKmlStyleRegistry,kmlStyleAttrs,kmlGroundOverlays,repairKmlXml,kmlDiagnostics,geojsonFeaturesToStorage,buildKmlGroups,parseGeoFile,parseStatFile,summarize,counts,numeric,download,profileFields,fieldProfile,aggregate,smartSort,formatNumber,inferSchema,norm};
+  window.SigmunData={decodeBytes,readTextFile,detectCoords,detectGeometryField,rowsToPoints,rowsToGeometries,parseWKT,parseGeometryValue,normalizePolygonGeometry,normalizeLineGeometry,kmlColor,extractKmlStyleRegistry,kmlStyleAttrs,kmlGroundOverlays,kmlNetworkLinks,networkLinkWfsUrl,resolveNetworkLink,repairKmlXml,kmlDiagnostics,geojsonFeaturesToStorage,buildKmlGroups,parseGeoFile,parseStatFile,summarize,counts,numeric,download,profileFields,fieldProfile,aggregate,smartSort,formatNumber,inferSchema,norm,HEIGHT_BANDS,AREA_BANDS,heightBand,areaBand,heightConfidence,polygonAreaM2,inferBuildingHeight,enrichBuildingPolygons,buildingFootprintDiagnostics,buildingFieldCandidates};
 })();

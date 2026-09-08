@@ -154,3 +154,13 @@ El botón **Imprimir** abre un configurador de hoja con tamaños Carta, A4, Ofic
 ## Capas geográficas densas · actualización 2026-09-07
 
 SIGmun incorpora entrega paginada de GeoJSON para capas grandes mediante `sigmun_geo_layer_geojson_page()`. Esto evita respuestas monolíticas excesivas, especialmente en KML/KMZ de miles de líneas. Las capas no visibles se cargan de forma diferida en el visor y el usuario recibe progreso de carga. El administrador también informa si un KML/KMZ contiene exclusivamente líneas y no polígonos.
+
+## Edificios 3D y NetworkLink GeoServer · actualización 2026-09-08
+
+`admin.html` detecta KML/KMZ que contienen `NetworkLink` de GeoServer/GeoNode y, cuando el recurso remoto lo permite, transforma la referencia WMS en una consulta WFS GeoJSON para recuperar las entidades vectoriales. Las consultas remotas se procesan por páginas y posteriormente utilizan el mismo modelo PostGIS de SIGmun.
+
+Para capas poligonales se incorpora **Preparación tridimensional**. La altura puede proceder de un campo de altura, de niveles/pisos, de coordenada Z o de una altura predeterminada. Los registros se enriquecen con `ALTURA_M`, `NIVELES_EST`, `RANGO_ALTURA`, `FUENTE_ALTURA`, `CONFIANZA_ALTURA`, `ALTURA_ESTIMADA`, `AREA_M2`, `RANGO_SUPERFICIE` y `VOLUMEN_M3_EST`. La aplicación distingue valores directos de estimaciones y evita activar automáticamente la extrusión cuando la geometría remota no parece una colección de huellas de edificios.
+
+`visor.html` incorpora una vista WebGL 3D mediante MapLibre GL. Los edificios se representan con `fill-extrusion`, conservando XY geográfico y usando `ALTURA_M` como altura Z. Los colores predeterminados representan rangos de altura y la ventana de consulta muestra también niveles, huella, rango de superficie y confianza de la altura.
+
+Ver `DIAGNOSTICO_SEDATU_NETWORKLINK_3D_2026-09-08.md` y `GUIA_EDIFICIOS_3D_2026-09-08.md`.
