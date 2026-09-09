@@ -73,6 +73,46 @@
     onProgress(features.length,Number(page.limit)||limit);
     return{type:'FeatureCollection',features,_sigmun:{viewport:true,truncated:!!page.has_more,limit:Number(page.limit)||limit,bounds:{west,south,east,north},engine:page.engine||engine,simplify:Number(page.simplify)||simplify}};
   }
+
+  // Massive Layers Engine · MVT + PMTiles
+  const mvtCache=new Map();
+  const MVT_CACHE_MAX=192;
+  let protocolsRegistered=false,pmtilesProtocol=null;
+  function mvtCacheSet(key,value){
+    if(mvtCache.has(key))mvtCache.delete(key);mvtCache.set(key,value);
+    while(mvtCache.size>MVT_CACHE_MAX)mvtCache.delete(mvtCache.keys().next().value);
+  }
+  function base64ToArrayBuffer(base64){
+    const clean=String(base64||'').replace(/\s+/g,'');if(!clean)return new ArrayBuffer(0);
+    const raw=atob(clean),bytes=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);return bytes.buffer;
+  }
+  function mvtFeatureLimit(z){const n=Number(z)||0;return n<=13?3200:n===14?5200:n===15?8000:n===16?10000:12000}
+  async function mvtTile(layerId,z,x,y,options={}){
+    const limit=Math.max(500,Math.min(12000,Number(options.limit)||mvtFeatureLimit(z))),key=`${layerId}/${z}/${x}/${y}/${limit}`;
+    if(mvtCache.has(key)){const hit=mvtCache.get(key);mvtCache.delete(key);mvtCache.set(key,hit);return hit.slice(0)}
+    let req=client.rpc('sigmun_geo_layer_mvt_v1',{p_layer_id:layerId,p_z:Number(z),p_x:Number(x),p_y:Number(y),p_feature_limit:limit});
+    if(options.signal&&typeof req.abortSignal==='function')req=req.abortSignal(options.signal);
+    const {data,error}=await req;if(error)throw error;const buffer=base64ToArrayBuffer(data||'');mvtCacheSet(key,buffer);return buffer.slice(0);
+  }
+  function parseMvtProtocolUrl(url){
+    const m=String(url||'').match(/^sigmvt:\/\/([0-9a-f-]+)\/(\d+)\/(\d+)\/(\d+)(?:\?.*)?$/i);if(!m)return null;
+    return{layerId:m[1],z:Number(m[2]),x:Number(m[3]),y:Number(m[4])};
+  }
+  function registerMapLibreProtocols(maplibre=window.maplibregl){
+    if(!maplibre||protocolsRegistered)return !!maplibre;
+    try{
+      maplibre.addProtocol('sigmvt',async(params,abortController)=>{
+        const t=parseMvtProtocolUrl(params.url);if(!t)throw new Error('URL MVT SIGmun inválida.');
+        const data=await mvtTile(t.layerId,t.z,t.x,t.y,{signal:abortController?.signal});return{data};
+      });
+      if(window.pmtiles?.Protocol){pmtilesProtocol=new window.pmtiles.Protocol();maplibre.addProtocol('pmtiles',pmtilesProtocol.tile)}
+      protocolsRegistered=true;return true;
+    }catch(e){console.warn('Protocolos cartográficos SIGmun',e);return false}
+  }
+  function clearMvtCache(layerId=''){if(!layerId){mvtCache.clear();return}for(const key of [...mvtCache.keys()])if(key.startsWith(`${layerId}/`))mvtCache.delete(key)}
+  async function geoFeatureProperties(layerId,featureId){
+    const {data,error}=await client.rpc('sigmun_geo_feature_properties_v1',{p_layer_id:layerId,p_feature_id:String(featureId||'')});if(error)throw error;return data||null;
+  }
   async function statRecords(layerId){ const {data,error}=await client.from('sigmun_stat_records').select('id,record_order,attributes').eq('layer_id',layerId).order('record_order').range(0,9999); if(error)throw error; return (data||[]).map(r=>({__id:r.id,...(r.attributes||{})})); }
 
   async function session(){ const {data,error}=await client.auth.getSession(); if(error)throw error; return data.session; }
@@ -141,5 +181,5 @@
     for(const item of items||[]){const {error}=await client.from('sigmun_stat_layers').update({sort_order:item.sort_order,updated_at:new Date().toISOString()}).eq('id',item.id);if(error)throw error;}
   }
 
-  window.SigmunDB={client,topics,projects,projectBySlug,geoLayers,statLayers,geojson,geojsonViewport,statRecords,session,signIn,signUp,signOut,adminStatus,myProfile,bootstrapAdmin,auditLogs,manageUsers,saveTopic,saveProject,deleteTopic,deleteProject,createGeoLayer,updateGeoLayer,createStatLayer,updateStatLayer,deleteGeoLayer,deleteStatLayer,insertPoints,insertPolygons,insertLines,insertGeoBatch,geoBatchAvailable,insertStatRecords,updateGeoStyle,updateGeoFeature,updateGeoLayerOrders,updateStatLayerOrders,slugify};
+  window.SigmunDB={client,topics,projects,projectBySlug,geoLayers,statLayers,geojson,geojsonViewport,mvtTile,registerMapLibreProtocols,clearMvtCache,geoFeatureProperties,statRecords,session,signIn,signUp,signOut,adminStatus,myProfile,bootstrapAdmin,auditLogs,manageUsers,saveTopic,saveProject,deleteTopic,deleteProject,createGeoLayer,updateGeoLayer,createStatLayer,updateStatLayer,deleteGeoLayer,deleteStatLayer,insertPoints,insertPolygons,insertLines,insertGeoBatch,geoBatchAvailable,insertStatRecords,updateGeoStyle,updateGeoFeature,updateGeoLayerOrders,updateStatLayerOrders,slugify};
 })();

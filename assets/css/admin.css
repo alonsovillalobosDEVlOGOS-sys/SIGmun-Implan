@@ -22,3 +22,12 @@
 @media(max-width:1000px){.geo-3d-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.geo-3d-generated{grid-column:span 2}}
 @media(max-width:620px){.geo-3d-head{flex-direction:column}.geo-3d-grid{grid-template-columns:1fr}.geo-3d-generated{grid-column:auto}.geo-3d-switch{align-self:flex-start}}
 .geo-preview-3d{position:relative;background:#e8eef5}.geo-preview-3d .maplibregl-canvas{outline:none}.notice.compact{margin-top:9px;padding:9px 11px;font-size:8.5px}.editor-tab i{margin-right:4px}
+
+/* Massive Layers Engine · configuración de publicación */
+.massive-engine-editor{margin-top:12px;padding:12px;border:1px solid #dce8f3;border-radius:12px;background:#f8fbfe}
+.massive-engine-editor .engine-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.massive-engine-editor .engine-head b{display:block;color:#153f6d;font-size:11px}.massive-engine-editor .engine-head span{display:block;margin-top:2px;color:#6f8297;font-size:8.5px;line-height:1.4}
+.massive-engine-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.massive-engine-grid .wide{grid-column:span 2}
+.engine-recommendation{padding:8px 10px;border:1px solid #d9e7f5;border-radius:9px;background:#fff;color:#5c728a;font-size:8.5px;line-height:1.45}
+.engine-recommendation b{color:#0f4fa8}
+@media(max-width:650px){.massive-engine-grid{grid-template-columns:1fr}.massive-engine-grid .wide{grid-column:auto}}
