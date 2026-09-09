@@ -15,21 +15,65 @@
   async function projectBySlug(slug){ const {data,error}=await client.from('sigmun_projects').select('*,sigmun_topics(name,slug)').eq('slug',slug).maybeSingle(); if(error)throw error; return data; }
   async function geoLayers(projectId){ let q=client.from('sigmun_geo_layers').select('*').order('sort_order').order('name'); if(projectId)q=q.eq('project_id',projectId); const {data,error}=await q; if(error)throw error; return data||[]; }
   async function statLayers(projectId){ let q=client.from('sigmun_stat_layers').select('*').order('sort_order').order('name'); if(projectId)q=q.eq('project_id',projectId); const {data,error}=await q; if(error)throw error; return data||[]; }
+  async function rpcPageV2(layerId,pageSize,offset){
+    return client.rpc('sigmun_geo_layer_geojson_page_v2',{p_layer_id:layerId,p_limit:pageSize,p_offset:offset});
+  }
+  async function rpcPageLegacy(layerId,pageSize,offset){
+    return client.rpc('sigmun_geo_layer_geojson_page',{p_layer_id:layerId,p_limit:pageSize,p_offset:offset});
+  }
+  function isTimeoutError(error){return error?.code==='57014'||/statement timeout|canceling statement/i.test(String(error?.message||''))}
   async function geojson(layerId,options={}){
-    const onProgress=typeof options.onProgress==='function'?options.onProgress:()=>{},pageSize=Math.max(250,Math.min(1200,Number(options.pageSize)||800));
-    let offset=0,total=null,features=[],usedPaged=false;
+    const onProgress=typeof options.onProgress==='function'?options.onProgress:()=>{};
+    const geom=String(options.geometryType||'');
+    let pageSize=Number(options.pageSize)||(geom==='MultiPolygon'?350:geom==='MultiLineString'?700:900);
+    pageSize=Math.max(100,Math.min(1000,pageSize));
+    const maxFeatures=Number.isFinite(Number(options.maxFeatures))&&Number(options.maxFeatures)>0?Number(options.maxFeatures):Infinity;
+    let offset=0,total=Number(options.expectedTotal)||null,features=[],engine='page_v2',truncated=false;
     while(true){
-      const {data,error}=await client.rpc('sigmun_geo_layer_geojson_page',{p_layer_id:layerId,p_limit:pageSize,p_offset:offset});
+      let data,error;
+      ({data,error}=await rpcPageV2(layerId,pageSize,offset));
+      if(error&&/function .* does not exist|schema cache/i.test(String(error.message||''))){engine='page_v1';({data,error}=await rpcPageLegacy(layerId,pageSize,offset));}
+      if(error&&isTimeoutError(error)&&pageSize>100){pageSize=Math.max(100,Math.floor(pageSize/2));continue;}
       if(error){
-        if(offset===0){const legacy=await client.rpc('sigmun_geo_layer_geojson',{p_layer_id:layerId});if(legacy.error)throw legacy.error;return legacy.data||{type:'FeatureCollection',features:[]};}
+        if(offset===0&&engine==='page_v1'){
+          const legacy=await client.rpc('sigmun_geo_layer_geojson',{p_layer_id:layerId});
+          if(legacy.error)throw legacy.error;
+          return legacy.data||{type:'FeatureCollection',features:[]};
+        }
         throw error;
       }
-      usedPaged=true;const page=data||{},rows=Array.isArray(page.features)?page.features:[];if(total===null)total=Number(page.total)||rows.length;
-      features.push(...rows);offset+=rows.length;onProgress(features.length,total||features.length);
-      if(!page.has_more||!rows.length||features.length>=total)break;
+      const page=data||{},rows=Array.isArray(page.features)?page.features:[];
+      if(total===null&&Number.isFinite(Number(page.total)))total=Number(page.total);
+      const remaining=maxFeatures-features.length;features.push(...rows.slice(0,remaining));offset+=rows.length;onProgress(features.length,total||Math.max(features.length,offset));
+      if(rows.length>remaining||features.length>=maxFeatures){truncated=!!page.has_more||rows.length>remaining||((total??0)>features.length);break;}
+      if(!page.has_more||!rows.length||(total!==null&&features.length>=total))break;
       await new Promise(r=>setTimeout(r,0));
     }
-    return{type:'FeatureCollection',features,_sigmun:{paged:usedPaged,total:total??features.length}};
+    return{type:'FeatureCollection',features,_sigmun:{paged:true,total:total??features.length,engine,truncated}};
+  }
+  async function geojsonViewport(layerId,bounds,options={}){
+    if(!bounds)throw new Error('Viewport geográfico no disponible.');
+    const west=Number(bounds.getWest?.()??bounds.west),south=Number(bounds.getSouth?.()??bounds.south),east=Number(bounds.getEast?.()??bounds.east),north=Number(bounds.getNorth?.()??bounds.north);
+    if(![west,south,east,north].every(Number.isFinite))throw new Error('Viewport geográfico inválido.');
+    const onProgress=typeof options.onProgress==='function'?options.onProgress:()=>{};
+    const maxFeatures=Math.max(1000,Math.min(25000,Number(options.maxFeatures)||12000));
+    let pageSize=Math.max(100,Math.min(800,Number(options.pageSize)||400)),offset=0,features=[],truncated=false;
+    while(features.length<maxFeatures){
+      const {data,error}=await client.rpc('sigmun_geo_layer_geojson_bbox_page_v2',{p_layer_id:layerId,p_west:west,p_south:south,p_east:east,p_north:north,p_limit:pageSize,p_offset:offset});
+      if(error){
+        if(isTimeoutError(error)&&pageSize>100){pageSize=Math.max(100,Math.floor(pageSize/2));continue;}
+        throw error;
+      }
+      const page=data||{},rows=Array.isArray(page.features)?page.features:[];
+      if(!rows.length)break;
+      const remaining=maxFeatures-features.length;
+      features.push(...rows.slice(0,remaining));
+      offset+=rows.length;onProgress(features.length,maxFeatures);
+      if(rows.length>remaining||features.length>=maxFeatures){truncated=!!page.has_more||rows.length>remaining;break;}
+      if(!page.has_more)break;
+      await new Promise(r=>setTimeout(r,0));
+    }
+    return{type:'FeatureCollection',features,_sigmun:{viewport:true,truncated,limit:maxFeatures,bounds:{west,south,east,north},engine:'bbox_v2'}};
   }
   async function statRecords(layerId){ const {data,error}=await client.from('sigmun_stat_records').select('id,record_order,attributes').eq('layer_id',layerId).order('record_order').range(0,9999); if(error)throw error; return (data||[]).map(r=>({__id:r.id,...(r.attributes||{})})); }
 
@@ -99,5 +143,5 @@
     for(const item of items||[]){const {error}=await client.from('sigmun_stat_layers').update({sort_order:item.sort_order,updated_at:new Date().toISOString()}).eq('id',item.id);if(error)throw error;}
   }
 
-  window.SigmunDB={client,topics,projects,projectBySlug,geoLayers,statLayers,geojson,statRecords,session,signIn,signUp,signOut,adminStatus,myProfile,bootstrapAdmin,auditLogs,manageUsers,saveTopic,saveProject,deleteTopic,deleteProject,createGeoLayer,updateGeoLayer,createStatLayer,updateStatLayer,deleteGeoLayer,deleteStatLayer,insertPoints,insertPolygons,insertLines,insertGeoBatch,geoBatchAvailable,insertStatRecords,updateGeoStyle,updateGeoFeature,updateGeoLayerOrders,updateStatLayerOrders,slugify};
+  window.SigmunDB={client,topics,projects,projectBySlug,geoLayers,statLayers,geojson,geojsonViewport,statRecords,session,signIn,signUp,signOut,adminStatus,myProfile,bootstrapAdmin,auditLogs,manageUsers,saveTopic,saveProject,deleteTopic,deleteProject,createGeoLayer,updateGeoLayer,createStatLayer,updateStatLayer,deleteGeoLayer,deleteStatLayer,insertPoints,insertPolygons,insertLines,insertGeoBatch,geoBatchAvailable,insertStatRecords,updateGeoStyle,updateGeoFeature,updateGeoLayerOrders,updateStatLayerOrders,slugify};
 })();
