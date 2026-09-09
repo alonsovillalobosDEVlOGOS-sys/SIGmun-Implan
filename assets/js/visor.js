@@ -114,10 +114,14 @@
     if(obj.loading){obj.pendingViewport={bounds,zoom};return obj}
     obj.loading=true;const token=(obj.viewportToken||0)+1;obj.viewportToken=token;
     try{
-      const maxFeatures=/Polygon/i.test(obj.def.geometry_type||'')?12000:18000;
-      const gj=await SigmunDB.geojsonViewport(obj.def.id,bounds,{pageSize:/Polygon/i.test(obj.def.geometry_type||'')?300:500,maxFeatures,onProgress:(done,max)=>{$('mapDesc').textContent=`${obj.def.name}: ${done.toLocaleString('es-MX')} elementos del área visible…`;}});
-      const pending=obj.pendingViewport;obj.pendingViewport=null;const fresh=await replaceViewportLayer(obj,gj,token);$('mapDesc').textContent=fresh?.truncated?`${state.project?.description||''} · Capa masiva: acércate para ver más detalle.`:(state.project?.description||'');if(pending)setTimeout(()=>refreshMassiveLayer(fresh,pending.bounds,pending.zoom,false),0);return fresh;
-    }catch(e){obj.loading=false;const pending=obj.pendingViewport;obj.pendingViewport=null;console.error('Viewport capa',obj.def.name,e);$('mapDesc').textContent=state.project?.description||'';toast(`No fue posible actualizar ${obj.def.name}: ${e.message}`,true);if(pending)setTimeout(()=>refreshMassiveLayer(obj,pending.bounds,pending.zoom,false),300);return obj}
+      const polygon=/Polygon/i.test(obj.def.geometry_type||''),z=Number(zoom)||minz;
+      const limit=polygon?(z<=14?900:z<=15?1300:1800):(z<=14?1200:1800);
+      const simplify=polygon?(z<=14?.000008:z<=15?.000004:z<=16?.000002:0):(z<=14?.000006:0);
+      const gj=await SigmunDB.geojsonViewport(obj.def.id,bounds,{limit,simplify,onProgress:(done,max)=>{$('mapDesc').textContent=`${obj.def.name}: ${done.toLocaleString('es-MX')} elementos visibles…`;}});
+      const pending=obj.pendingViewport;obj.pendingViewport=null;const fresh=await replaceViewportLayer(obj,gj,token);
+      $('mapDesc').textContent=fresh?.truncated?`${state.project?.description||''} · ${obj.def.name}: muestra optimizada del área visible; acércate para cargar todos los edificios.`:(state.project?.description||'');
+      if(pending)setTimeout(()=>refreshMassiveLayer(fresh,pending.bounds,pending.zoom,false),80);return fresh;
+    }catch(e){obj.loading=false;obj.pendingViewport=null;console.error('Viewport capa',obj.def.name,e);$('mapDesc').textContent=state.project?.description||'';toast(`No fue posible actualizar ${obj.def.name}: ${e.message}`,true);return obj}
   }
   async function refreshMassiveLayers(bounds=map.getBounds(),zoom=map.getZoom(),force=false){
     const arr=[...state.layers.values()].filter(x=>x.massive&&map.hasLayer(x.leaflet));
