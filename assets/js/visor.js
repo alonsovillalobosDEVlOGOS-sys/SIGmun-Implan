@@ -122,23 +122,29 @@
   function removeMvtFromMaplibre(target,x,prefix='sigmvt2d'){
     if(!target||!x)return;const n=mvtLayerNames(x,prefix);for(const id of [n.line,n.circle,n.fill])try{if(target.getLayer(id))target.removeLayer(id)}catch(_){}try{if(target.getSource(n.source))target.removeSource(n.source)}catch(_){}if(prefix==='sigmvt2d'){state.mvtLayerIds.delete(n.fill);state.mvtLayerIds.delete(n.line);state.mvtLayerIds.delete(n.circle)}else{state.map3dLayerIds.delete(n.fill);state.map3dLayerIds.delete(n.line);state.map3dLayerIds.delete(n.circle)}
   }
+  function mvtLayerSpec(base,filter){
+    // MapLibre GL v5 valida `filter` estrictamente: si la propiedad existe debe ser un array.
+    // No enviar `filter: undefined`; omitir por completo la propiedad cuando no hay filtro activo.
+    if(Array.isArray(filter))base.filter=filter;
+    return base;
+  }
   function addMvtToMaplibre(target,x,prefix='sigmvt2d',extrude=false){
     if(!target||!x||!isTileEngine(x)||!map.hasLayer(x.leaflet))return;const n=mvtLayerNames(x,prefix),sourceLayer=tileSourceLayer(x),opacity=Math.max(.05,Math.min(1,x.opacity??1)),color=massiveColorExpression(x),filter=massiveFilterExpression(x),type=String(x.def.geometry_type||'');
     if(!target.getSource(n.source))target.addSource(n.source,tileSourceSpec(x));
     if(/Polygon/i.test(type)){
       if(extrude){
         const st=x.style?.threeD||{},m3=x.def?.metadata?.three_d||{},hf=st.heightField||m3.height_field||'ALTURA_M',bf=st.baseHeightField||m3.base_height_field||'ALTURA_BASE_M';
-        target.addLayer({id:n.fill,type:'fill-extrusion',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||14,filter:filter||undefined,paint:{'fill-extrusion-color':color,'fill-extrusion-height':['to-number',['get',hf],3.2],'fill-extrusion-base':['to-number',['get',bf],0],'fill-extrusion-opacity':Math.max(.16,Math.min(.96,opacity*.88)),'fill-extrusion-vertical-gradient':true}});
-        target.addLayer({id:n.line,type:'line',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||14,filter:filter||undefined,paint:{'line-color':'rgba(25,45,65,.34)','line-width':.65,'line-opacity':Math.max(.12,Math.min(.75,opacity*.45))}});
+        target.addLayer(mvtLayerSpec({id:n.fill,type:'fill-extrusion',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||14,paint:{'fill-extrusion-color':color,'fill-extrusion-height':['to-number',['get',hf],3.2],'fill-extrusion-base':['to-number',['get',bf],0],'fill-extrusion-opacity':Math.max(.16,Math.min(.96,opacity*.88)),'fill-extrusion-vertical-gradient':true}},filter));
+        target.addLayer(mvtLayerSpec({id:n.line,type:'line',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||14,paint:{'line-color':'rgba(25,45,65,.34)','line-width':.65,'line-opacity':Math.max(.12,Math.min(.75,opacity*.45))}},filter));
       }else{
-        target.addLayer({id:n.fill,type:'fill',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||14,filter:filter||undefined,paint:{'fill-color':color,'fill-opacity':Math.max(.08,Math.min(.9,opacity*(x.style?.fillOpacity??.62)))}});
-        target.addLayer({id:n.line,type:'line',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||14,filter:filter||undefined,paint:{'line-color':x.style?.outlineColor||'#36556f','line-width':Math.max(.35,Number(x.style?.weight)||.8),'line-opacity':Math.max(.08,Math.min(.9,opacity*(x.style?.opacity??.65)))}});
+        target.addLayer(mvtLayerSpec({id:n.fill,type:'fill',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||14,paint:{'fill-color':color,'fill-opacity':Math.max(.08,Math.min(.9,opacity*(x.style?.fillOpacity??.62)))}},filter));
+        target.addLayer(mvtLayerSpec({id:n.line,type:'line',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||14,paint:{'line-color':x.style?.outlineColor||'#36556f','line-width':Math.max(.35,Number(x.style?.weight)||.8),'line-opacity':Math.max(.08,Math.min(.9,opacity*(x.style?.opacity??.65)))}},filter));
       }
       (prefix==='sigmvt2d'?state.mvtLayerIds:state.map3dLayerIds).set(n.fill,x.def.id);(prefix==='sigmvt2d'?state.mvtLayerIds:state.map3dLayerIds).set(n.line,x.def.id);
     }else if(/Line/i.test(type)){
-      target.addLayer({id:n.line,type:'line',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||12,filter:filter||undefined,paint:{'line-color':color,'line-width':Math.max(.6,Number(x.style?.weight)||1.5),'line-opacity':opacity}});(prefix==='sigmvt2d'?state.mvtLayerIds:state.map3dLayerIds).set(n.line,x.def.id);
+      target.addLayer(mvtLayerSpec({id:n.line,type:'line',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||12,paint:{'line-color':color,'line-width':Math.max(.6,Number(x.style?.weight)||1.5),'line-opacity':opacity}},filter));(prefix==='sigmvt2d'?state.mvtLayerIds:state.map3dLayerIds).set(n.line,x.def.id);
     }else if(/Point/i.test(type)){
-      target.addLayer({id:n.circle,type:'circle',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||11,filter:filter||undefined,paint:{'circle-color':color,'circle-radius':Math.max(2,Number(x.style?.radius)||5),'circle-opacity':opacity,'circle-stroke-color':'#ffffff','circle-stroke-width':.6}});(prefix==='sigmvt2d'?state.mvtLayerIds:state.map3dLayerIds).set(n.circle,x.def.id);
+      target.addLayer(mvtLayerSpec({id:n.circle,type:'circle',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||11,paint:{'circle-color':color,'circle-radius':Math.max(2,Number(x.style?.radius)||5),'circle-opacity':opacity,'circle-stroke-color':'#ffffff','circle-stroke-width':.6}},filter));(prefix==='sigmvt2d'?state.mvtLayerIds:state.map3dLayerIds).set(n.circle,x.def.id);
     }
   }
   function syncMvtOverlayLayer(x){if(!isTileEngine(x))return;const m=ensureMvtOverlay();if(!m||!state.mapMvtReady)return;removeMvtFromMaplibre(m,x,'sigmvt2d');if(map.hasLayer(x.leaflet))addMvtToMaplibre(m,x,'sigmvt2d',false)}
