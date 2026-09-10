@@ -20,7 +20,7 @@
   function fillTopics(){$('topicSelect').innerHTML=state.topics.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('');$('topicSelect').onchange=e=>{fillProjects(e.target.value);const id=$('projectSelect').value;if(id)selectProject(id)}}
   function fillProjects(topicId,sel){const arr=state.projects.filter(p=>p.topic_id===topicId&&p.project_type!=='dashboard');$('projectSelect').innerHTML=arr.map(p=>`<option value="${p.id}" ${p.id===sel?'selected':''}>${esc(p.name)}</option>`).join('');$('projectSelect').onchange=e=>selectProject(e.target.value)}
   async function selectProject(id){state.project=state.projects.find(p=>p.id===id);if(!state.project)return;clearProjectLayers();$('headerTitle').textContent=state.project.name;$('headerSubtitle').textContent=state.project.sigmun_topics?.name||'SIGmun Delicias';$('mapTitle').textContent=state.project.name;$('mapDesc').textContent=state.project.description||'';$('dashLink').href=`dashboard.html?project=${encodeURIComponent(state.project.slug)}`;map.setView([state.project.center_lat||cfg.defaultCenter[0],state.project.center_lon||cfg.defaultCenter[1]],state.project.default_zoom||cfg.defaultZoom);state.defs=await SigmunDB.geoLayers(id);await loadDefs()}
-  function clearProjectLayers(){for(const x of state.layers.values()){if(state.map3dReady)remove3dLayer(x);if(state.mapMvtReady&&isTileEngine(x))removeMvtFromMaplibre(state.mapMvt,x,'sigmvt2d');if(map.hasLayer(x.leaflet))map.removeLayer(x.leaflet)}state.layers.clear();state.mvtLayerIds.clear();state.selected=null;state.rows=[];state.filtered=[];renderLayerList();refreshData();renderMapLegend()}
+  function clearProjectLayers(){for(const x of state.layers.values()){if(state.map3dReady)remove3dLayer(x);removeLeafletMvt2d(x);if(state.mapMvtReady&&x?.tileEngine==='pmtiles')removeMvtFromMaplibre(state.mapMvt,x,'sigmvt2d');if(map.hasLayer(x.leaflet))map.removeLayer(x.leaflet)}state.layers.clear();state.mvtLayerIds.clear();state.selected=null;state.rows=[];state.filtered=[];renderLayerList();refreshData();renderMapLegend()}
   function featureId(f,i=0){return String(f?.id??f?.properties?.id??i)}
   function makeLayer(def,gj,index){
     const style=SigmunTheme.normalizeStyle(def.style||{}),pane=`sigmun-${String(def.id).replace(/-/g,'').slice(0,12)}`;
@@ -110,6 +110,125 @@
   function mvtLayerNames(x,prefix='sigmvt2d'){
     const id=safe3dId(x.def.id);return{source:`${prefix}-src-${id}`,fill:`${prefix}-fill-${id}`,line:`${prefix}-line-${id}`,circle:`${prefix}-circle-${id}`};
   }
+
+  // SIGmun 2026-09-10a · MVT nativo en Leaflet para la vista 2D.
+  //
+  // Motivo: superponer un segundo mapa MapLibre sobre Leaflet obliga a mantener dos
+  // cámaras/proyecciones sincronizadas. Leaflet usa una escala base de 256 px y
+  // MapLibre una escala de cámara distinta; durante zoom/pan el canvas superpuesto
+  // puede desplazarse respecto al mapa base. En 2D las teselas MVT se renderizan
+  // ahora dentro del propio GridLayer de Leaflet. La vista 3D conserva MapLibre.
+  const LEAFLET_MVT_BRIDGE='https://sigmun-mvt.local/';
+  function installLeafletMvtFetchBridge(){
+    if(window.__sigmunLeafletMvtBridgeInstalled)return true;
+    if(!window.fetch||!SigmunDB?.mvtTile)return false;
+    const nativeFetch=window.__sigmunNativeFetch||window.fetch.bind(window);
+    window.__sigmunNativeFetch=nativeFetch;
+    window.fetch=async function(input,init){
+      const url=typeof input==='string'?input:String(input?.url||'');
+      if(url.startsWith(LEAFLET_MVT_BRIDGE)){
+        const m=url.match(/^https:\/\/sigmun-mvt\.local\/([0-9a-f-]+)\/(\d+)\/(\d+)\/(\d+)\.pbf(?:\?.*)?$/i);
+        if(!m)return new Response('',{status:404,statusText:'MVT inválido'});
+        try{
+          const data=await SigmunDB.mvtTile(m[1],Number(m[2]),Number(m[3]),Number(m[4]),{signal:init?.signal});
+          return new Response(data,{status:200,headers:{'Content-Type':'application/x-protobuf','Cache-Control':'no-store'}});
+        }catch(err){
+          if(err?.name==='AbortError')throw err;
+          console.warn('Tesela MVT 2D',m[1],m[2],m[3],m[4],err);
+          return new Response('',{status:503,statusText:'MVT no disponible'});
+        }
+      }
+      return nativeFetch(input,init);
+    };
+    window.__sigmunLeafletMvtBridgeInstalled=true;
+    return true;
+  }
+  function leafletMvtVisible(x,props){
+    if(!x?.disabledSubgroups?.size)return true;
+    const field=massiveStyleField(x);
+    if(!field)return true;
+    return !x.disabledSubgroups.has(`cat:${String(props?.[field]??'')}`);
+  }
+  function leafletMvtColor(x,props){
+    const field=massiveStyleField(x),items=massiveBandItems(x),fallback=x?.style?.color||'#0f4fa8';
+    if(field&&items.length){
+      const value=String(props?.[field]??'');
+      const hit=items.find(i=>String(i.value)===value);
+      if(hit?.color)return hit.color;
+    }
+    if(/Line/i.test(x?.def?.geometry_type||'')&&props?._kml_line_color)return props._kml_line_color;
+    if(/Polygon|Point/i.test(x?.def?.geometry_type||'')&&props?._kml_fill_color)return props._kml_fill_color;
+    return fallback;
+  }
+  function leafletMvtStyle(x,props){
+    if(!leafletMvtVisible(x,props))return[];
+    const type=String(x?.def?.geometry_type||''),opacity=Math.max(.03,Math.min(1,x?.opacity??1)),color=leafletMvtColor(x,props);
+    if(/Polygon/i.test(type))return{
+      fill:true,fillColor:color,fillOpacity:Math.max(.05,Math.min(.9,opacity*(x?.style?.fillOpacity??.62))),
+      color:props?._kml_line_color||x?.style?.outlineColor||'#36556f',
+      opacity:Math.max(.06,Math.min(.9,opacity*(x?.style?.opacity??.65))),
+      weight:Math.max(.35,Number(x?.style?.weight)||.8)
+    };
+    if(/Line/i.test(type))return{
+      fill:false,color:color,opacity,weight:Math.max(.6,Number(x?.style?.weight)||1.5)
+    };
+    return{
+      radius:Math.max(2,Number(x?.style?.radius)||5),fill:true,fillColor:color,fillOpacity:opacity,
+      color:'#ffffff',opacity:Math.max(.35,opacity),weight:.6
+    };
+  }
+  function ensureLeafletMvt2d(x){
+    if(!x||x.tileEngine!=='mvt')return null;
+    if(x.mvt2d)return x.mvt2d;
+    if(!window.L?.vectorGrid?.protobuf||!installLeafletMvtFetchBridge()){
+      console.warn('Leaflet.VectorGrid no disponible; se conservará el respaldo por viewport para',x.def?.name);
+      return null;
+    }
+    const sourceLayer=tileSourceLayer(x),minZoom=x.minZoom||massiveMinZoom(x.def),maxZoom=Math.max(minZoom,Math.min(20,Number(x.def?.metadata?.max_zoom)||20));
+    const url=`${LEAFLET_MVT_BRIDGE}${x.def.id}/{z}/{x}/{y}.pbf`;
+    const styles={};
+    styles[sourceLayer]=(props)=>leafletMvtStyle(x,props||{});
+    const grid=L.vectorGrid.protobuf(url,{
+      pane:x.pane,
+      minZoom,maxZoom,
+      maxNativeZoom:maxZoom,
+      rendererFactory:L.canvas.tile,
+      vectorTileLayerStyles:styles,
+      interactive:true,
+      getFeatureId:feat=>String(feat?.properties?._sigmun_id??feat?.id??''),
+      keepBuffer:2,
+      updateWhenIdle:false,
+      updateWhenZooming:false
+    });
+    grid.on('click',async e=>{
+      const props={...(e?.layer?.properties||{})},fid=props._sigmun_id||props.feature_id;
+      try{if(fid){const full=await SigmunDB.geoFeatureProperties(x.def.id,fid);if(full)Object.assign(props,full)}}catch(err){console.warn('Atributos MVT 2D',err)}
+      showProps({type:'Feature',properties:props,geometry:null},x.def);selectLayer(x.def.id,false);
+    });
+    grid.on('tileerror',e=>console.warn('Tesela MVT Leaflet',x.def?.name,e?.error||e));
+    x.mvt2d=grid;
+    return grid;
+  }
+  function syncLeafletMvt2d(x){
+    if(!x||x.tileEngine!=='mvt')return;
+    const grid=ensureLeafletMvt2d(x);
+    if(!grid)return;
+    const shouldShow=!state.view3d&&map.hasLayer(x.leaflet);
+    if(shouldShow&&!map.hasLayer(grid))grid.addTo(map);
+    else if(!shouldShow&&map.hasLayer(grid))map.removeLayer(grid);
+  }
+  function redrawLeafletMvt2d(x){
+    if(!x||x.tileEngine!=='mvt')return;
+    const grid=ensureLeafletMvt2d(x);
+    if(grid?.redraw)grid.redraw();
+    syncLeafletMvt2d(x);
+  }
+  function removeLeafletMvt2d(x){
+    if(!x?.mvt2d)return;
+    try{if(map.hasLayer(x.mvt2d))map.removeLayer(x.mvt2d)}catch(_){}
+    x.mvt2d=null;
+  }
+
   function mvtOverlayStyle(){return{version:8,sources:{},layers:[{id:'sigmvt-transparent-bg',type:'background',paint:{'background-color':'rgba(0,0,0,0)'}}]}}
   function ensureMvtOverlay(){
     if(state.mapMvt)return state.mapMvt;if(!window.maplibregl)return null;SigmunDB.registerMapLibreProtocols?.(window.maplibregl);
@@ -147,8 +266,8 @@
       target.addLayer(mvtLayerSpec({id:n.circle,type:'circle',source:n.source,'source-layer':sourceLayer,minzoom:x.minZoom||11,paint:{'circle-color':color,'circle-radius':Math.max(2,Number(x.style?.radius)||5),'circle-opacity':opacity,'circle-stroke-color':'#ffffff','circle-stroke-width':.6}},filter));(prefix==='sigmvt2d'?state.mvtLayerIds:state.map3dLayerIds).set(n.circle,x.def.id);
     }
   }
-  function syncMvtOverlayLayer(x){if(!isTileEngine(x))return;const m=ensureMvtOverlay();if(!m||!state.mapMvtReady)return;removeMvtFromMaplibre(m,x,'sigmvt2d');if(map.hasLayer(x.leaflet))addMvtToMaplibre(m,x,'sigmvt2d',false)}
-  function syncMvtOverlayAll(){if(!state.mapMvtReady)return;for(const x of state.layers.values())if(isTileEngine(x))syncMvtOverlayLayer(x)}
+  function syncMvtOverlayLayer(x){if(x?.tileEngine!=='pmtiles')return;const m=ensureMvtOverlay();if(!m||!state.mapMvtReady)return;removeMvtFromMaplibre(m,x,'sigmvt2d');if(map.hasLayer(x.leaflet))addMvtToMaplibre(m,x,'sigmvt2d',false)}
+  function syncMvtOverlayAll(){if(!state.mapMvtReady)return;for(const x of state.layers.values())if(x?.tileEngine==='pmtiles')syncMvtOverlayLayer(x)}
   async function handleMvt2dClick(e){
     if(!state.mapMvtReady||state.view3d||!state.mvtLayerIds.size)return;const p=state.mapMvt.project([e.latlng.lng,e.latlng.lat]),ids=[...state.mvtLayerIds.keys()].filter(id=>state.mapMvt.getLayer(id));if(!ids.length)return;const hit=state.mapMvt.queryRenderedFeatures(p,{layers:ids})[0];if(!hit)return;const layerId=state.mvtLayerIds.get(hit.layer.id),x=state.layers.get(layerId);if(!x)return;let props=hit.properties||{};const fid=props._sigmun_id||props.feature_id;try{if(fid){const full=await SigmunDB.geoFeatureProperties(layerId,fid);if(full)props=full}}catch(err){console.warn('Atributos MVT',err)}showProps({type:'Feature',properties:props,geometry:hit.geometry},x.def);selectLayer(x.def.id,false)
   }
@@ -162,7 +281,7 @@
   function massiveLabel(x){
     if(!x?.massive)return'';
     const total=declaredFeatureCount(x.def),loaded=(x.geojson?.features||[]).length,minz=x.minZoom||massiveMinZoom(x.def),engine=x.tileEngine||'viewport';
-    if(engine==='mvt')return` · <span class="massive-engine-pill"><i class="bi bi-grid-3x3-gap"></i>MVT</span><span class="massive-engine-note"><strong>${total.toLocaleString('es-MX')}</strong> elementos · teselas vectoriales WebGL · zoom ${minz}+</span>`;
+    if(engine==='mvt')return` · <span class="massive-engine-pill"><i class="bi bi-grid-3x3-gap"></i>MVT</span><span class="massive-engine-note"><strong>${total.toLocaleString('es-MX')}</strong> elementos · teselas vectoriales nativas 2D / WebGL 3D · zoom ${minz}+</span>`;
     if(engine==='pmtiles')return` · <span class="massive-engine-pill pmtiles"><i class="bi bi-box-seam"></i>PMTiles</span><span class="massive-engine-note"><strong>${total.toLocaleString('es-MX')}</strong> elementos · archivo teselado por rangos HTTP</span>`;
     if(map.getZoom()<minz)return` · <span class="massive-engine-pill viewport">Viewport</span> visible desde zoom ${minz}+`;
     return` · <span class="massive-engine-pill viewport">Viewport</span> ${loaded.toLocaleString('es-MX')} / ${total.toLocaleString('es-MX')}`;
@@ -179,10 +298,11 @@
         if(tileEngine&&!obj.subgroups.length){obj.subgroups=massiveSubgroups(obj);obj.fidToGroup=new Map()}
         if(d.is_visible!==false)obj.leaflet.addTo(map);
         state.layers.set(d.id,obj);
+        if(obj.tileEngine==='mvt')syncLeafletMvt2d(obj);
       }catch(e){console.error('Capa',d.name,e);toast(`No fue posible cargar ${d.name}: ${e.message}`,true)}
     }
     $('mapDesc').textContent=state.project?.description||'';
-    if([...state.layers.values()].some(isTileEngine)){ensureMvtOverlay();setTimeout(syncMvtOverlayAll,50)}
+    if([...state.layers.values()].some(x=>x.tileEngine==='pmtiles')){ensureMvtOverlay();setTimeout(syncMvtOverlayAll,50)}
     renderLayerList();renderMapLegend();
     await refreshMassiveLayers(map.getBounds(),map.getZoom(),false);
     const first=sorted.find(d=>state.layers.get(d.id)?.loaded&&map.hasLayer(state.layers.get(d.id).leaflet))||sorted.find(d=>state.layers.has(d.id));
@@ -225,6 +345,7 @@
   async function activateMvtFallback(layerId,reason=''){
     const x=state.layers.get(layerId);if(!x||x.mvtFallback||x.tileEngine!=='mvt')return;
     x.mvtFallback=true;
+    try{removeLeafletMvt2d(x)}catch(_){}
     try{if(state.mapMvtReady)removeMvtFromMaplibre(state.mapMvt,x,'sigmvt2d')}catch(_){}
     try{if(state.map3dReady)removeMvtFromMaplibre(state.map3d,x,'sigmvt3d')}catch(_){}
     x.tileEngine=null;x.viewportMode=true;x.massive=true;x.minZoom=Math.max(15,massiveMinZoom(x.def));
@@ -294,8 +415,8 @@
     return`<details class="layer-subgroups" ${x.def.id===state.selected?'open':''}><summary><span>${esc(title)}</span><b>${x.subgroups.length}</b></summary><div class="subgroup-actions"><button type="button" data-sub-all="${x.def.id}">Todas</button><button type="button" data-sub-none="${x.def.id}">Ninguna</button></div><div class="subgroup-list">${x.subgroups.map(g=>`<label class="subgroup-row"><input type="checkbox" data-sub-toggle="${x.def.id}" data-sub-key="${esc(g.key)}" ${x.disabledSubgroups.has(g.key)?'':'checked'}><i style="background:${g.color};opacity:${g.opacity??1}"></i><span title="${esc(g.displayLabel||g.label)}">${esc(g.displayLabel||g.label)}</span><em>${g.count.toLocaleString('es-MX')}</em></label>`).join('')}</div></details>`;
   }
   function layerCard(x){
-    const active=map.hasLayer(x.leaflet),features=visibleFeatures(x),c=x.def.geometry_type==='RasterOverlay'?'#62b5e5':SigmunTheme.colorForFeature(x.style,features[0]||x.geojson.features?.[0]||{}),detail=rendererDetail(x),total=x.featureTotal||declaredFeatureCount(x.def)||((x.geojson.features||[]).length+(x.overlayCount||0)),loadedCount=features.length+(x.overlayCount||0),massiveInfo=massiveLabel(x);
-    return`<div class="layer-item ${x.def.id===state.selected?'selected':''}" data-layer-card="${x.def.id}"><div class="layer-row"><label class="layer-check" title="Mostrar/ocultar capa"><input type="checkbox" data-toggle="${x.def.id}" ${active?'checked':''}><span></span></label><span class="dot" style="background:${c}"></span><button class="layer-name" data-select="${x.def.id}">${esc(x.def.name)}</button><div class="layer-tools"><button class="mini-icon" data-zoom="${x.def.id}" title="Acercar"><i class="bi bi-search"></i></button></div></div><div class="layer-meta"><b>${esc(rendererName(x.style.renderer,x.def.geometry_type))}</b>${detail?` · ${esc(detail)}`:''}${(x.style?.threeD?.enabled||x.def?.metadata?.three_d?.enabled)?'<span class="three-d-layer-pill"><i class="bi bi-buildings"></i>3D</span>':''}${x.loaded?'':' · carga diferida'}${massiveInfo} · ${loadedCount.toLocaleString('es-MX')} / ${total.toLocaleString('es-MX')} elementos</div><div class="layer-opacity-row"><span>Opacidad</span><input type="range" data-opacity="${x.def.id}" min="0" max="100" value="${Math.round(x.opacity*100)}" aria-label="Opacidad de ${esc(x.def.name)}"><b>${Math.round(x.opacity*100)}%</b></div>${subgroupRows(x)}${miniLegend(x)}</div>`;
+    const active=map.hasLayer(x.leaflet),features=visibleFeatures(x),c=x.def.geometry_type==='RasterOverlay'?'#62b5e5':SigmunTheme.colorForFeature(x.style,features[0]||x.geojson.features?.[0]||{}),detail=rendererDetail(x),total=x.featureTotal||declaredFeatureCount(x.def)||((x.geojson.features||[]).length+(x.overlayCount||0)),loadedCount=features.length+(x.overlayCount||0),massiveInfo=massiveLabel(x),countInfo=isTileEngine(x)?`${total.toLocaleString('es-MX')} disponibles`:`${loadedCount.toLocaleString('es-MX')} / ${total.toLocaleString('es-MX')} elementos`;
+    return`<div class="layer-item ${x.def.id===state.selected?'selected':''}" data-layer-card="${x.def.id}"><div class="layer-row"><label class="layer-check" title="Mostrar/ocultar capa"><input type="checkbox" data-toggle="${x.def.id}" ${active?'checked':''}><span></span></label><span class="dot" style="background:${c}"></span><button class="layer-name" data-select="${x.def.id}">${esc(x.def.name)}</button><div class="layer-tools"><button class="mini-icon" data-zoom="${x.def.id}" title="Acercar"><i class="bi bi-search"></i></button></div></div><div class="layer-meta"><b>${esc(rendererName(x.style.renderer,x.def.geometry_type))}</b>${detail?` · ${esc(detail)}`:''}${(x.style?.threeD?.enabled||x.def?.metadata?.three_d?.enabled)?'<span class="three-d-layer-pill"><i class="bi bi-buildings"></i>3D</span>':''}${x.loaded?'':' · carga diferida'}${massiveInfo} · ${countInfo}</div><div class="layer-opacity-row"><span>Opacidad</span><input type="range" data-opacity="${x.def.id}" min="0" max="100" value="${Math.round(x.opacity*100)}" aria-label="Opacidad de ${esc(x.def.name)}"><b>${Math.round(x.opacity*100)}%</b></div>${subgroupRows(x)}${miniLegend(x)}</div>`;
   }
   function renderLayerList(){
     const arr=[...state.layers.values()].sort((a,b)=>(a.def.sort_order||0)-(b.def.sort_order||0)),groups=collectionGroups(arr);$('layerList').innerHTML=arr.length?groups.map(g=>`<section class="viewer-layer-group"><div class="viewer-layer-group-head"><div><i class="bi bi-collection"></i><b>${esc(g.title)}</b><span>${g.layers.length} capa${g.layers.length===1?'':'s'}</span></div><div><button type="button" data-group-show="${esc(g.key)}">Todas</button><button type="button" data-group-hide="${esc(g.key)}">Ninguna</button></div></div>${g.layers.map(layerCard).join('')}</section>`).join(''):'<div class="empty">Este proyecto todavía no tiene capas geográficas publicadas.</div>';
@@ -307,14 +428,15 @@
     document.querySelectorAll('[data-group-show]').forEach(b=>b.onclick=()=>setCollectionVisible(b.dataset.groupShow,true));document.querySelectorAll('[data-group-hide]').forEach(b=>b.onclick=()=>setCollectionVisible(b.dataset.groupHide,false));
     updateDataSelect();updateVisibleCount();
   }
-  async function setLayerVisible(id,on,rerender=true){let x=state.layers.get(id);if(!x)return;if(on){try{if(!map.hasLayer(x.leaflet))x.leaflet.addTo(map);if(isTileEngine(x)){syncMvtOverlayLayer(x)}else if(x.massive){if(map.getZoom()>=x.minZoom)x=await refreshMassiveLayer(x,map.getBounds(),map.getZoom(),false);else toast(`${x.def.name}: acércate a zoom ${x.minZoom}+ para cargar los elementos.`)}else{x=await ensureLayerLoaded(x);if(!map.hasLayer(x.leaflet))x.leaflet.addTo(map)}}catch(e){toast(`No fue posible activar ${x.def.name}: ${e.message}`,true);return}}else{if(map.hasLayer(x.leaflet))map.removeLayer(x.leaflet);if(isTileEngine(x)&&state.mapMvtReady)syncMvtOverlayLayer(x)}if(state.map3dReady)sync3dLayer(x);if(rerender){renderLayerList();renderMapLegend()}}
+  async function setLayerVisible(id,on,rerender=true){let x=state.layers.get(id);if(!x)return;if(on){try{if(!map.hasLayer(x.leaflet))x.leaflet.addTo(map);if(x.tileEngine==='mvt'){syncLeafletMvt2d(x)}else if(x.tileEngine==='pmtiles'){syncMvtOverlayLayer(x)}else if(x.massive){if(map.getZoom()>=x.minZoom)x=await refreshMassiveLayer(x,map.getBounds(),map.getZoom(),false);else toast(`${x.def.name}: acércate a zoom ${x.minZoom}+ para cargar los elementos.`)}else{x=await ensureLayerLoaded(x);if(!map.hasLayer(x.leaflet))x.leaflet.addTo(map)}}catch(e){toast(`No fue posible activar ${x.def.name}: ${e.message}`,true);return}}else{if(map.hasLayer(x.leaflet))map.removeLayer(x.leaflet);if(x.tileEngine==='mvt')syncLeafletMvt2d(x);else if(x.tileEngine==='pmtiles'&&state.mapMvtReady)syncMvtOverlayLayer(x)}if(state.map3dReady)sync3dLayer(x);if(rerender){renderLayerList();renderMapLegend()}}
   async function setCollectionVisible(key,on){const targets=[...state.layers.values()].filter(x=>{const m=x.def.metadata||{},k=m.import_group_id?`g:${m.import_group_id}`:'standalone';return k===key});for(const x of targets)await setLayerVisible(x.def.id,on,false);renderLayerList();renderMapLegend()}
   function setAllSubgroups(id,on){const x=state.layers.get(id);if(!x)return;x.disabledSubgroups.clear();if(!on)x.subgroups.forEach(g=>x.disabledSubgroups.add(g.key));syncSubgroups(x);afterSubgroupChange(x)}
   function toggleSubgroup(id,key,on){const x=state.layers.get(id);if(!x)return;on?x.disabledSubgroups.delete(key):x.disabledSubgroups.add(key);syncSubgroups(x);afterSubgroupChange(x)}
-  function syncSubgroups(x){if(isTileEngine(x)){syncMvtOverlayLayer(x);if(state.map3dReady)sync3dLayer(x);return}for(const child of x.children){const key=child.__sigmunGroup,should=!key||!x.disabledSubgroups.has(key),has=x.leaflet.hasLayer(child);if(should&&!has)x.leaflet.addLayer(child);else if(!should&&has)x.leaflet.removeLayer(child)}applyLayerStyle(x)}
+  function syncSubgroups(x){if(x?.tileEngine==='mvt'){redrawLeafletMvt2d(x);if(state.map3dReady)sync3dLayer(x);return}if(x?.tileEngine==='pmtiles'){syncMvtOverlayLayer(x);if(state.map3dReady)sync3dLayer(x);return}for(const child of x.children){const key=child.__sigmunGroup,should=!key||!x.disabledSubgroups.has(key),has=x.leaflet.hasLayer(child);if(should&&!has)x.leaflet.addLayer(child);else if(!should&&has)x.leaflet.removeLayer(child)}applyLayerStyle(x)}
   function afterSubgroupChange(x){if(state.selected===x.def.id)selectLayer(x.def.id,false);if(state.map3dReady)sync3dLayer(x);renderLayerList();renderMapLegend()}
   function applyLayerStyle(x){
-    if(isTileEngine(x)){syncMvtOverlayLayer(x);if(state.map3dReady)sync3dLayer(x);return}
+    if(x?.tileEngine==='mvt'){redrawLeafletMvt2d(x);if(state.map3dReady)sync3dLayer(x);return}
+    if(x?.tileEngine==='pmtiles'){syncMvtOverlayLayer(x);if(state.map3dReady)sync3dLayer(x);return}
     for(const child of x.children){
       if(child.__sigmunRaster){if(child.setOpacity)child.setOpacity((child.__sigmunRasterBaseOpacity??1)*x.opacity);continue}
       const f=child.__sigmunFeature;if(!f)continue;
@@ -359,7 +481,7 @@
   function update3dBadge(){if(!$('map3dBadge'))return;let count=0,min=Infinity,max=0,tiled=0;for(const x of state.layers.values()){if(!map.hasLayer(x.leaflet)||!threeDCompatible(x))continue;if(isTileEngine(x)){tiled++;continue}for(const f of visibleFeatures(x)){const h=feature3dHeight(f,x);if(h!==null){count++;min=Math.min(min,h);max=Math.max(max,h)}}}const small=$('map3dBadge').querySelector('small');if(small)small.textContent=tiled?`${tiled} capa${tiled===1?'':'s'} MVT/PMTiles · 3D por teselas`:count?`${count.toLocaleString('es-MX')} edificios · ${min.toFixed(1)}–${max.toFixed(1)} m`:'Sin edificios 3D visibles'}
   function sync3dAll(){if(!state.map3dReady)return;for(const x of state.layers.values())sync3dLayer(x);update3dBasemap();update3dBadge()}
   function ensure3dMap(){if(state.map3d)return state.map3d;if(!window.maplibregl){toast('No fue posible cargar el motor WebGL 3D.',true);return null}const c=map.getCenter();state.map3d=new maplibregl.Map({container:'map3d',style:map3dStyle(),center:[c.lng,c.lat],zoom:map.getZoom(),pitch:56,bearing:-18,antialias:true,preserveDrawingBuffer:true,attributionControl:false});state.map3d.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-left');state.map3d.addControl(new maplibregl.ScaleControl({maxWidth:120,unit:'metric'}),'bottom-left');state.map3d.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-right');state.map3d.on('load',()=>{state.map3dReady=true;sync3dAll();scheduleMassiveRefresh()});state.map3d.on('moveend',scheduleMassiveRefresh);state.map3d.on('click',async e=>{const layerIds=[...state.map3dLayerIds.keys()].filter(id=>state.map3d.getLayer(id));if(!layerIds.length)return;const hit=state.map3d.queryRenderedFeatures(e.point,{layers:layerIds})[0];if(!hit)return;const layerId=state.map3dLayerIds.get(hit.layer.id),x=state.layers.get(layerId);let p=hit.properties||{};const fid=p._sigmun_id||p.feature_id;try{if(fid){const full=await SigmunDB.geoFeatureProperties(layerId,fid);if(full)p=full}}catch(err){console.warn('Atributos MVT 3D',err)}const st=x?.style?.threeD||{},hf=st.heightField||x?.def?.metadata?.three_d?.height_field||'ALTURA_M',h=Number(p[hf]??p.ALTURA_M??p._sigmun_height_m)||0,band=p.RANGO_ALTURA||p._sigmun_height_band||'Edificio';new maplibregl.Popup({closeButton:true,maxWidth:'300px'}).setLngLat(e.lngLat).setHTML(`<div class="sigmun-3d-popup"><b>${esc(p.name||p.nombre||x?.def?.name||'Edificio')}</b><span><strong>${h.toFixed(1)} m</strong> · ${esc(band)}</span><span>${p.NIVELES_EST?`${esc(p.NIVELES_EST)} nivel${Number(p.NIVELES_EST)===1?'':'es'} · `:''}${p.AREA_M2?`${Number(p.AREA_M2).toLocaleString('es-MX',{maximumFractionDigits:0})} m² de huella`:''}</span>${p.RANGO_SUPERFICIE?`<span>${esc(p.RANGO_SUPERFICIE)}</span>`:''}${p.CONFIANZA_ALTURA?`<span>Altura ${p.ALTURA_ESTIMADA==='Sí'?'estimada':'de fuente'} · confianza ${esc(p.CONFIANZA_ALTURA)}</span>`:''}</div>`).addTo(state.map3d);if(x)showProps({type:'Feature',properties:p,geometry:hit.geometry},x.def)});state.map3d.on('mouseenter',e=>{const ids=[...state.map3dLayerIds.keys()].filter(id=>state.map3d.getLayer(id));if(ids.length&&state.map3d.queryRenderedFeatures(e.point,{layers:ids}).length)state.map3d.getCanvas().style.cursor='pointer'});state.map3d.on('mouseleave',()=>{state.map3d.getCanvas().style.cursor=''});return state.map3d}
-  async function toggle3d(){if(!state.view3d){state.view3d=true;$('map')?.closest('.map-wrap')?.classList.add('mode-3d');const m=ensure3dMap();if(!m){state.view3d=false;$('map')?.closest('.map-wrap')?.classList.remove('mode-3d');return}setTimeout(()=>{m.resize();const c=map.getCenter(),massive3d=[...state.layers.values()].filter(x=>x.massive&&map.hasLayer(x.leaflet)&&(x.style?.threeD?.enabled||x.def?.metadata?.three_d?.enabled)),targetZoom=massive3d.length?Math.max(map.getZoom(),...massive3d.map(x=>x.minZoom||14)):map.getZoom();m.jumpTo({center:[c.lng,c.lat],zoom:targetZoom,pitch:56,bearing:-18});sync3dAll();scheduleMassiveRefresh();if(![...state.layers.values()].some(x=>map.hasLayer(x.leaflet)&&threeDCompatible(x))&&!massive3d.length)toast('Vista 3D activa. Enciende una capa poligonal con ALTURA_M para extruir edificios.')},60)}else{state.view3d=false;const c=state.map3d?.getCenter();if(c)map.setView([c.lat,c.lng],state.map3d.getZoom(),{animate:false});$('map')?.closest('.map-wrap')?.classList.remove('mode-3d');setTimeout(()=>{map.invalidateSize({animate:false});syncMvtOverlayCamera();syncMvtOverlayAll()},40)}}
+  async function toggle3d(){if(!state.view3d){state.view3d=true;for(const x of state.layers.values())if(x.tileEngine==='mvt')syncLeafletMvt2d(x);$('map')?.closest('.map-wrap')?.classList.add('mode-3d');const m=ensure3dMap();if(!m){state.view3d=false;$('map')?.closest('.map-wrap')?.classList.remove('mode-3d');for(const x of state.layers.values())if(x.tileEngine==='mvt')syncLeafletMvt2d(x);return}setTimeout(()=>{m.resize();const c=map.getCenter(),massive3d=[...state.layers.values()].filter(x=>x.massive&&map.hasLayer(x.leaflet)&&(x.style?.threeD?.enabled||x.def?.metadata?.three_d?.enabled)),targetZoom=massive3d.length?Math.max(map.getZoom(),...massive3d.map(x=>x.minZoom||14)):map.getZoom();m.jumpTo({center:[c.lng,c.lat],zoom:targetZoom,pitch:56,bearing:-18});sync3dAll();scheduleMassiveRefresh();if(![...state.layers.values()].some(x=>map.hasLayer(x.leaflet)&&threeDCompatible(x))&&!massive3d.length)toast('Vista 3D activa. Enciende una capa poligonal con ALTURA_M para extruir edificios.')},60)}else{state.view3d=false;const c=state.map3d?.getCenter();if(c)map.setView([c.lat,c.lng],state.map3d.getZoom(),{animate:false});$('map')?.closest('.map-wrap')?.classList.remove('mode-3d');setTimeout(()=>{map.invalidateSize({animate:false});for(const x of state.layers.values())if(x.tileEngine==='mvt')syncLeafletMvt2d(x);syncMvtOverlayCamera();syncMvtOverlayAll()},40)}}
 
   const PRINT_PAPERS={letter:{label:'Carta',w:216,h:279},a4:{label:'A4',w:210,h:297},oficio:{label:'Oficio',w:216,h:340},legal:{label:'Legal',w:216,h:356},tabloid:{label:'Tabloide',w:279,h:432},a3:{label:'A3',w:297,h:420}};
   let printSnapshot=null;
