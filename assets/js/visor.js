@@ -154,7 +154,8 @@
   }
   function massiveLayer(def){return declaredFeatureCount(def)>=30000&&def?.geometry_type!=='RasterOverlay'}
   function massiveMinZoom(def){
-    const explicit=Number(def?.style?.threeD?.minZoom??def?.metadata?.min_zoom);
+    const m=def?.metadata||{};
+    const explicit=Number(m.mvt_min_zoom??def?.style?.threeD?.minZoom??m.min_zoom);
     if(Number.isFinite(explicit))return Math.max(10,Math.min(19,explicit));
     return /Polygon/i.test(def?.geometry_type||'')?14:13;
   }
@@ -221,6 +222,18 @@
   }
   let massiveRefreshTimer=null;
   function scheduleMassiveRefresh(){clearTimeout(massiveRefreshTimer);massiveRefreshTimer=setTimeout(()=>{const use3d=state.view3d&&state.map3dReady&&state.map3d,b=use3d?state.map3d.getBounds():map.getBounds(),z=use3d?state.map3d.getZoom():map.getZoom();refreshMassiveLayers(b,z,false)},260)}
+  async function activateMvtFallback(layerId,reason=''){
+    const x=state.layers.get(layerId);if(!x||x.mvtFallback||x.tileEngine!=='mvt')return;
+    x.mvtFallback=true;
+    try{if(state.mapMvtReady)removeMvtFromMaplibre(state.mapMvt,x,'sigmvt2d')}catch(_){}
+    try{if(state.map3dReady)removeMvtFromMaplibre(state.map3d,x,'sigmvt3d')}catch(_){}
+    x.tileEngine=null;x.viewportMode=true;x.massive=true;x.minZoom=Math.max(15,massiveMinZoom(x.def));
+    toast(`${x.def.name}: se activó el modo de respaldo por viewport para mantener la visualización.`,true);
+    const b=state.view3d&&state.map3dReady?state.map3d.getBounds():map.getBounds(),z=state.view3d&&state.map3dReady?state.map3d.getZoom():map.getZoom();
+    await refreshMassiveLayer(x,b,z,true);renderLayerList();renderMapLegend();update3dBadge();
+    if(reason)console.warn('MVT → viewport fallback',x.def.name,reason);
+  }
+  window.addEventListener('sigmun:mvt-failed',e=>{const d=e.detail||{};activateMvtFallback(d.layerId,d.message||d.code||'timeout').catch(err=>console.warn('Fallback MVT',err))});
   async function ensureLayerLoaded(obj){
     if(!obj)return obj;
     if(isTileEngine(obj))return obj;

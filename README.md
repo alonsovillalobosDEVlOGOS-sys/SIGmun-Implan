@@ -164,3 +164,7 @@ Para capas poligonales se incorpora **Preparación tridimensional**. La altura p
 `visor.html` incorpora una vista WebGL 3D mediante MapLibre GL. Los edificios se representan con `fill-extrusion`, conservando XY geográfico y usando `ALTURA_M` como altura Z. Los colores predeterminados representan rangos de altura y la ventana de consulta muestra también niveles, huella, rango de superficie y confianza de la altura.
 
 Ver `DIAGNOSTICO_SEDATU_NETWORKLINK_3D_2026-09-08.md` y `GUIA_EDIFICIOS_3D_2026-09-08.md`.
+
+## 2026-09-09 · Massive Layers Engine
+
+SIGmun incorpora MVT dinámico desde PostGIS, render WebGL 2D/3D, caché de tiles, propiedades bajo demanda y soporte opcional PMTiles. Las capas existentes siguen siendo compatibles con GeoJSON/viewport. Consulta `MASSIVE_LAYERS_ENGINE_2026-09-09.md`.

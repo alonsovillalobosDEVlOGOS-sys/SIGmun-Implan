@@ -76,7 +76,11 @@
 
   // Massive Layers Engine · MVT + PMTiles
   const mvtCache=new Map();
-  const MVT_CACHE_MAX=192;
+  const mvtInflight=new Map();
+  const mvtQueue=[];
+  const MVT_CACHE_MAX=224;
+  const MVT_MAX_CONCURRENT=2;
+  let mvtActive=0;
   let protocolsRegistered=false,pmtilesProtocol=null;
   function mvtCacheSet(key,value){
     if(mvtCache.has(key))mvtCache.delete(key);mvtCache.set(key,value);
@@ -86,13 +90,51 @@
     const clean=String(base64||'').replace(/\s+/g,'');if(!clean)return new ArrayBuffer(0);
     const raw=atob(clean),bytes=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)bytes[i]=raw.charCodeAt(i);return bytes.buffer;
   }
-  function mvtFeatureLimit(z){const n=Number(z)||0;return n<=13?3200:n===14?5200:n===15?8000:n===16?10000:12000}
+  function mvtAbortError(){try{return new DOMException('Solicitud MVT cancelada.','AbortError')}catch(_){const e=new Error('Solicitud MVT cancelada.');e.name='AbortError';return e}}
+  function runMvtQueue(){
+    while(mvtActive<MVT_MAX_CONCURRENT&&mvtQueue.length){
+      const job=mvtQueue.shift();
+      mvtActive++;
+      Promise.resolve().then(job.task).then(job.resolve,job.reject).finally(()=>{mvtActive--;runMvtQueue()});
+    }
+  }
+  function enqueueMvt(task){
+    return new Promise((resolve,reject)=>{mvtQueue.push({task,resolve,reject});runMvtQueue()});
+  }
+  function waitMvt(promise,signal){
+    if(!signal)return promise;if(signal.aborted)return Promise.reject(mvtAbortError());
+    return new Promise((resolve,reject)=>{const onAbort=()=>{cleanup();reject(mvtAbortError())},cleanup=()=>signal.removeEventListener('abort',onAbort);signal.addEventListener('abort',onAbort,{once:true});promise.then(v=>{cleanup();resolve(v)},e=>{cleanup();reject(e)})});
+  }
+  function mvtFeatureLimit(z){const n=Number(z)||0;return n<=13?1200:n===14?1800:n===15?6000:n===16?3500:2500}
+  function isMvtTimeout(error){return error?.code==='57014'||/statement timeout|canceling statement/i.test(String(error?.message||''))}
+  function isMissingRpc(error){return /function .* does not exist|schema cache|PGRST202/i.test(String(error?.message||error?.code||''))}
+  async function rpcMvtV3(layerId,z,x,y,limit){return client.rpc('sigmun_geo_layer_mvt_v3',{p_layer_id:layerId,p_z:Number(z),p_x:Number(x),p_y:Number(y),p_feature_limit:limit})}
+  async function rpcMvtCompat(layerId,z,x,y,limit){
+    let out=await rpcMvtV3(layerId,z,x,y,limit);
+    if(out.error&&isMissingRpc(out.error))out=await client.rpc('sigmun_geo_layer_mvt_v2',{p_layer_id:layerId,p_z:Number(z),p_x:Number(x),p_y:Number(y),p_feature_limit:limit});
+    if(out.error&&isMissingRpc(out.error))out=await client.rpc('sigmun_geo_layer_mvt_v1',{p_layer_id:layerId,p_z:Number(z),p_x:Number(x),p_y:Number(y),p_feature_limit:limit});
+    return out;
+  }
   async function mvtTile(layerId,z,x,y,options={}){
-    const limit=Math.max(500,Math.min(12000,Number(options.limit)||mvtFeatureLimit(z))),key=`${layerId}/${z}/${x}/${y}/${limit}`;
-    if(mvtCache.has(key)){const hit=mvtCache.get(key);mvtCache.delete(key);mvtCache.set(key,hit);return hit.slice(0)}
-    let req=client.rpc('sigmun_geo_layer_mvt_v1',{p_layer_id:layerId,p_z:Number(z),p_x:Number(x),p_y:Number(y),p_feature_limit:limit});
-    if(options.signal&&typeof req.abortSignal==='function')req=req.abortSignal(options.signal);
-    const {data,error}=await req;if(error)throw error;const buffer=base64ToArrayBuffer(data||'');mvtCacheSet(key,buffer);return buffer.slice(0);
+    const limit=Math.max(200,Math.min(6000,Number(options.limit)||mvtFeatureLimit(z))),key=`${layerId}/${z}/${x}/${y}/${limit}`;
+    if(mvtCache.has(key)){if(options.signal?.aborted)throw mvtAbortError();const hit=mvtCache.get(key);mvtCache.delete(key);mvtCache.set(key,hit);return hit.slice(0)}
+    if(mvtInflight.has(key)){const hit=await waitMvt(mvtInflight.get(key),options.signal);return hit.slice(0)}
+    const task=enqueueMvt(async()=>{
+      let {data,error}=await rpcMvtCompat(layerId,z,x,y,limit);
+      if(error&&isMvtTimeout(error)){
+        const retryLimit=Math.max(700,Math.floor(limit*.58));
+        await new Promise(r=>setTimeout(r,180));
+        ({data,error}=await rpcMvtV3(layerId,z,x,y,retryLimit));
+      }
+      if(error){
+        if(isMvtTimeout(error))window.dispatchEvent(new CustomEvent('sigmun:mvt-failed',{detail:{layerId,z:Number(z),x:Number(x),y:Number(y),code:error.code||'',message:error.message||'Timeout MVT'}}));
+        throw error;
+      }
+      const buffer=base64ToArrayBuffer(data||'');mvtCacheSet(key,buffer);return buffer;
+    });
+    mvtInflight.set(key,task);
+    task.finally(()=>mvtInflight.delete(key));
+    const buffer=await waitMvt(task,options.signal);return buffer.slice(0)
   }
   function parseMvtProtocolUrl(url){
     const m=String(url||'').match(/^sigmvt:\/\/([0-9a-f-]+)\/(\d+)\/(\d+)\/(\d+)(?:\?.*)?$/i);if(!m)return null;
@@ -103,7 +145,7 @@
     try{
       maplibre.addProtocol('sigmvt',async(params,abortController)=>{
         const t=parseMvtProtocolUrl(params.url);if(!t)throw new Error('URL MVT SIGmun inválida.');
-        const data=await mvtTile(t.layerId,t.z,t.x,t.y,{signal:abortController?.signal});return{data};
+        const data=await mvtTile(t.layerId,t.z,t.x,t.y,{signal:abortController?.signal});if(abortController?.signal?.aborted)throw mvtAbortError();return{data};
       });
       if(window.pmtiles?.Protocol){pmtilesProtocol=new window.pmtiles.Protocol();maplibre.addProtocol('pmtiles',pmtilesProtocol.tile)}
       protocolsRegistered=true;return true;
